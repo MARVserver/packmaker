@@ -24,12 +24,6 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
     const [importJson, setImportJson] = useState("")
     const [importError, setImportError] = useState<string | null>(null)
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (file) {
-            onAdd(file)
-        }
-    }
 
     const handleImportConfig = () => {
         try {
@@ -164,18 +158,10 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                             Add GUI Overlay
                         </Button>
                     </div>
-                    <div className="relative">
-                        <input
-                            type="file"
-                            accept=".ttf,.otf,.png"
-                            className="absolute inset-0 opacity-0 cursor-pointer"
-                            onChange={handleFileUpload}
-                        />
-                        <Button>
-                            <Plus className="mr-2 h-4 w-4" />
-                            New Font Definition
-                        </Button>
-                    </div>
+                    <Button onClick={() => onAdd(undefined as any)}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        New Font Definition
+                    </Button>
                 </div>
             </div>
 
