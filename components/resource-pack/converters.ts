@@ -179,10 +179,15 @@ export function convertFontsToBedrock(fonts: CustomFont[]): any {
 
     fonts.forEach(font => {
         font.providers.forEach(provider => {
+            let filename = font.name
+            if (provider.fileHandle) {
+                filename = provider.fileHandle.name.replace(/\.[^/.]+$/, "")
+            }
+
             if (provider.type === "bitmap") {
                 providers.push({
                     type: "bitmap",
-                    file: `textures/font/${font.name}.png`,
+                    file: `textures/font/${filename}.png`,
                     height: provider.height || 8,
                     ascent: provider.ascent || 8,
                     chars: provider.chars || []
@@ -190,7 +195,7 @@ export function convertFontsToBedrock(fonts: CustomFont[]): any {
             } else if (provider.type === "ttf") {
                 providers.push({
                     type: "ttf",
-                    file: `font/${font.name}.ttf`,
+                    file: `font/${filename}.ttf`,
                     size: provider.size || 11,
                     oversample: provider.oversample || 1.0,
                     shift: provider.shift || [0.0, 0.0],

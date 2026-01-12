@@ -1150,12 +1150,17 @@ ${new Date().toLocaleString()}
         if (fontsData) {
           zip.file("font/default.json", JSON.stringify(fontsData, null, 2))
           for (const font of resourcePack.fonts) {
-            if (font.file) {
-              const ext = font.file.name.split(".").pop()
-              if (ext === "ttf" || ext === "otf") {
-                zip.file(`font/${font.name}.${ext}`, font.file)
-              } else {
-                zip.file(`textures/font/${font.name}.${ext}`, font.file)
+            for (const provider of font.providers) {
+              const fileToSave = provider.fileHandle || (font.providers.length === 1 ? font.file : null)
+              if (fileToSave) {
+                const ext = fileToSave.name.split(".").pop()?.toLowerCase()
+                const filename = fileToSave.name.replace(/\.[^/.]+$/, "")
+
+                if (ext === "ttf" || ext === "otf") {
+                  zip.file(`font/${filename}.${ext}`, fileToSave)
+                } else if (ext === "png") {
+                  zip.file(`textures/font/${filename}.${ext}`, fileToSave)
+                }
               }
             }
           }
@@ -1375,13 +1380,51 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                 type: `minecraft:${provider.type}`,
               }
 
+              // Handle file name and saving
+              let filename = font.name
+              let extension = ""
+
+              if (provider.fileHandle) {
+                filename = provider.fileHandle.name.split(".").pop() ? provider.fileHandle.name.replace(/\.[^/.]+$/, "") : provider.fileHandle.name
+                extension = provider.fileHandle.name.split(".").pop() || ""
+              } else if (font.file) {
+                filename = font.file.name.replace(/\.[^/.]+$/, "")
+                extension = font.file.name.split(".").pop() || ""
+              }
+
               if (provider.type === "bitmap") {
-                providerJson.file = provider.file || `minecraft:font/${font.name}.png`
+                // Determine bitmap path
+                let bitmapPath = provider.file || `minecraft:font/${filename}.png`
+
+                if (provider.fileHandle) {
+                  const safeName = provider.fileHandle.name
+                  bitmapPath = `minecraft:font/${safeName}`
+                  zip.file(`assets/minecraft/textures/font/${safeName}`, provider.fileHandle)
+                } else if (font.file && extension.toLowerCase() === "png") {
+                  const safeName = `${filename}.png`
+                  bitmapPath = `minecraft:font/${safeName}`
+                  zip.file(`assets/minecraft/textures/font/${safeName}`, font.file)
+                }
+
+                providerJson.file = bitmapPath
                 providerJson.ascent = provider.ascent || 8
                 providerJson.height = provider.height || 8
                 if (provider.chars) providerJson.chars = provider.chars
               } else if (provider.type === "ttf") {
-                providerJson.file = provider.file || `minecraft:font/${font.name}.ttf`
+                // Determine ttf path
+                let ttfPath = provider.file || `minecraft:font/${filename}.ttf`
+
+                if (provider.fileHandle) {
+                  const safeName = provider.fileHandle.name
+                  ttfPath = `minecraft:font/${safeName}`
+                  zip.file(`assets/minecraft/font/${safeName}`, provider.fileHandle)
+                } else if (font.file && (extension.toLowerCase() === "ttf" || extension.toLowerCase() === "otf")) {
+                  const safeName = `${filename}.${extension}`
+                  ttfPath = `minecraft:font/${safeName}`
+                  zip.file(`assets/minecraft/font/${safeName}`, font.file)
+                }
+
+                providerJson.file = ttfPath
                 providerJson.size = provider.size || 11
                 providerJson.oversample = provider.oversample || 1.0
                 if (provider.shift) providerJson.shift = provider.shift
@@ -1398,11 +1441,6 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           }
 
           zip.file(`assets/minecraft/font/${font.name}.json`, JSON.stringify(fontJson, null, 2))
-
-          if (font.file) {
-            const ext = font.file.name.split(".").pop()
-            zip.file(`assets/minecraft/font/${font.name}.${ext}`, font.file)
-          }
         }
       }
 
