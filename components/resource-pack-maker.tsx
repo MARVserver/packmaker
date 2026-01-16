@@ -30,7 +30,10 @@ const validateModel = (model: ModelData): { isValid: boolean; errors: string[] }
   const errors: string[] = []
 
   if (!model.name.trim()) errors.push("Model name is required")
-  if (!model.customModelData || model.customModelData < 1) errors.push("Valid custom model data is required")
+  // Allow custom_model_data to be 0 or greater (0 is valid for base item override)
+  if (model.customModelData === undefined || model.customModelData === null || model.customModelData < 0) {
+    errors.push("Valid custom model data is required (0 or greater)")
+  }
   if (!model.targetItem.trim()) errors.push("Target item is required")
   if (Object.keys(model.textures).length === 0) errors.push("At least one texture is required")
 
@@ -461,7 +464,8 @@ export function ResourcePackMaker() {
 
   const addModel = useCallback(() => {
     const existingCustomModelData = resourcePack.models.map((m) => m.customModelData)
-    let newCustomModelData = 1
+    // Start from 0 to allow base item override, then find next available
+    let newCustomModelData = 0
     while (existingCustomModelData.includes(newCustomModelData)) {
       newCustomModelData++
     }

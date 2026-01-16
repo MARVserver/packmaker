@@ -8,8 +8,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Trash2, Type, MoveRight, Layers, Settings2, Layout, Smartphone } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Trash2, Type, MoveRight, Layers, Settings2, Layout, Smartphone, Sparkles, Eye, Copy } from "lucide-react"
 import { CustomFont, FontProvider } from "./types"
+import { Badge } from "@/components/ui/badge"
 
 interface FontManagerProps {
     fonts: CustomFont[]
@@ -19,11 +21,88 @@ interface FontManagerProps {
     onDelete: (id: string) => void
 }
 
+// Font Presets based on Qiita article examples
+const FONT_PRESETS = {
+    gui_overlay: {
+        name: "GUI Overlay",
+        description: "Perfect for custom GUIs in containers (barrels, chests, etc.)",
+        icon: Layout,
+        providers: [
+            {
+                id: crypto.randomUUID(),
+                type: "space" as const,
+                advances: { "\uE000": -8 }
+            },
+            {
+                id: crypto.randomUUID(),
+                type: "bitmap" as const,
+                height: 80,
+                ascent: 10,
+                chars: ["\uE001"]
+            }
+        ],
+        usage: '/setblock ~ ~ ~ barrel{CustomName:\'{"color":"white","text":"\\\\uE000\\\\uE001"}\'}'
+    },
+    bleeding_effect: {
+        name: "Bleeding/Screen Effect",
+        description: "Full-screen overlay for bleeding, damage, or transition effects",
+        icon: Eye,
+        providers: [
+            {
+                id: crypto.randomUUID(),
+                type: "bitmap" as const,
+                height: 128,
+                ascent: 64,
+                chars: ["\uE002"]
+            }
+        ],
+        usage: '/title @s title "\\uE002"'
+    },
+    icon_set: {
+        name: "Icon Set",
+        description: "Small icons for text (armor, hearts, custom symbols)",
+        icon: Sparkles,
+        providers: [
+            {
+                id: crypto.randomUUID(),
+                type: "bitmap" as const,
+                height: 9,
+                ascent: 8,
+                chars: ["\uE003"]
+            }
+        ],
+        usage: '{"attribute.name.armor": "§f\\uE003§r防御力"}'
+    },
+    particle_display: {
+        name: "Particle/Display Entity",
+        description: "For text_display entities and custom particles",
+        icon: Smartphone,
+        providers: [
+            {
+                id: crypto.randomUUID(),
+                type: "bitmap" as const,
+                height: 16,
+                ascent: 12,
+                chars: ["\uE004"]
+            }
+        ],
+        usage: 'summon text_display ~ ~ ~ {text:\'{"text":"\\uE004"}\'}'
+    }
+}
+
+// Unicode helper for generating safe unicode ranges
+const UNICODE_RANGES = {
+    private_use_area: { start: 0xE000, end: 0xF8FF, name: "Private Use Area (Recommended)" },
+    supplementary_private: { start: 0xF0000, end: 0xFFFFD, name: "Supplementary Private Use Area-A" }
+}
+
 export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: FontManagerProps) {
     const [isImporting, setIsImporting] = useState(false)
     const [importJson, setImportJson] = useState("")
     const [importError, setImportError] = useState<string | null>(null)
-
+    const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
+    const [showUnicodeHelper, setShowUnicodeHelper] = useState(false)
+    const [unicodeStart, setUnicodeStart] = useState("E000")
 
     const handleImportConfig = () => {
         try {
@@ -32,14 +111,12 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                 throw new Error("JSON must contain a 'providers' array")
             }
 
-            // Generate a valid CustomFont object
             const newFont: CustomFont = {
                 id: `font_${Date.now()}`,
                 name: parsed.name || `imported_font_${fonts.length + 1}`,
                 providers: parsed.providers.map((p: any) => ({
                     ...p,
-                    id: crypto.randomUUID(), // Ensure internal IDs exist
-                    // Ensure types are valid, default to bitmap if missing
+                    id: crypto.randomUUID(),
                     type: p.type || "bitmap"
                 }))
             }
@@ -51,6 +128,20 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
         } catch (e: any) {
             setImportError(e.message)
         }
+    }
+
+    const createFromPreset = (presetKey: string) => {
+        const preset = FONT_PRESETS[presetKey as keyof typeof FONT_PRESETS]
+        if (!preset) return
+
+        const newFont: CustomFont = {
+            id: `font_${Date.now()}`,
+            name: `${presetKey}_${fonts.length + 1}`,
+            providers: preset.providers.map(p => ({ ...p, id: crypto.randomUUID() }))
+        }
+
+        onImport(newFont)
+        setSelectedPreset(null)
     }
 
     const addProvider = (fontId: string, type: FontProvider["type"]) => {
@@ -107,63 +198,148 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
         updateProvider(fontId, providerIndex, { advances: newAdvances })
     }
 
+    const generateUnicodeSequence = (start: number, count: number): string[] => {
+        return Array.from({ length: count }, (_, i) =>
+            String.fromCodePoint(start + i)
+        )
+    }
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text)
+    }
+
     return (
         <div className="space-y-8">
             <div className="flex items-center justify-between border-b pb-4">
                 <div>
                     <h3 className="text-2xl font-bold">Custom Fonts</h3>
-                    <p className="text-muted-foreground">Manage bitmaps, TTFs, and spacing adjustments.</p>
+                    <p className="text-muted-foreground">Create bitmap fonts, TTFs, and spacing for GUIs, effects, and icons.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowUnicodeHelper(!showUnicodeHelper)}>
+                        <Type className="mr-2 h-4 w-4" />
+                        Unicode Helper
+                    </Button>
                     <Button variant="outline" onClick={() => setIsImporting(!isImporting)}>
                         {isImporting ? "Cancel Import" : "Import JSON"}
                     </Button>
-                    <div className="relative">
-                        <input
-                            type="file"
-                            accept=".png"
-                            className="absolute inset-0 opacity-0 cursor-pointer"
-                            onChange={(e) => {
-                                const file = e.target.files?.[0]
-                                if (file) {
-                                    // Create a "Perfect GUI" preset: Bitmap + Negative Space
-                                    // Use distinct unicodes: \uE000 for space shift, \uE001 for the image
-                                    const newFont: CustomFont = {
-                                        id: `font_${Date.now()}`,
-                                        name: "gui_" + file.name.replace(/\.[^/.]+$/, ""),
-                                        file: file,
-                                        providers: [
-                                            {
-                                                id: crypto.randomUUID(),
-                                                type: "space",
-                                                advances: { "\uE000": -8 }
-                                            },
-                                            {
-                                                id: crypto.randomUUID(),
-                                                type: "bitmap",
-                                                height: 80,
-                                                ascent: 10,
-                                                chars: ["\uE001"]
-                                            }
-                                        ]
-                                    }
-                                    onImport(newFont)
-                                    // Reset input so same file can be selected again
-                                    e.target.value = ""
-                                }
-                            }}
-                        />
-                        <Button variant="secondary">
-                            <Layout className="mr-2 h-4 w-4" />
-                            Add GUI Overlay
-                        </Button>
-                    </div>
                     <Button onClick={() => onAdd(undefined as any)}>
                         <Plus className="mr-2 h-4 w-4" />
                         New Font Definition
                     </Button>
                 </div>
             </div>
+
+            {/* Unicode Helper */}
+            {showUnicodeHelper && (
+                <Card className="border-2 border-primary/20 bg-primary/5">
+                    <CardHeader>
+                        <CardTitle className="text-lg">Unicode Character Helper</CardTitle>
+                        <CardDescription>Generate safe unicode characters for your custom fonts</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Start Hex (e.g., E000)</Label>
+                                <Input
+                                    value={unicodeStart}
+                                    onChange={(e) => setUnicodeStart(e.target.value.toUpperCase())}
+                                    placeholder="E000"
+                                    className="font-mono"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Preview</Label>
+                                <div className="p-2 border rounded bg-background font-mono text-sm">
+                                    U+{unicodeStart} = \u{unicodeStart}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Common Ranges</Label>
+                            <div className="grid gap-2">
+                                {Object.entries(UNICODE_RANGES).map(([key, range]) => (
+                                    <div key={key} className="p-3 border rounded bg-background">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="font-semibold text-sm">{range.name}</p>
+                                                <p className="text-xs text-muted-foreground font-mono">
+                                                    U+{range.start.toString(16).toUpperCase()} - U+{range.end.toString(16).toUpperCase()}
+                                                </p>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => setUnicodeStart(range.start.toString(16).toUpperCase())}
+                                            >
+                                                Use
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Font Presets */}
+            <Card className="border-2 border-secondary/20 bg-secondary/5">
+                <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-secondary" />
+                        Quick Start Presets
+                    </CardTitle>
+                    <CardDescription>Based on common Minecraft font use cases</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {Object.entries(FONT_PRESETS).map(([key, preset]) => {
+                            const Icon = preset.icon
+                            return (
+                                <Card key={key} className="border hover:border-primary/50 transition-colors cursor-pointer group">
+                                    <CardHeader className="pb-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Icon className="h-5 w-5 text-primary" />
+                                                <CardTitle className="text-base">{preset.name}</CardTitle>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => createFromPreset(key)}
+                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Plus className="h-4 w-4 mr-1" />
+                                                Add
+                                            </Button>
+                                        </div>
+                                        <CardDescription className="text-xs">{preset.description}</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="pt-0">
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-xs text-muted-foreground">Usage Example:</Label>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 px-2"
+                                                    onClick={() => copyToClipboard(preset.usage)}
+                                                >
+                                                    <Copy className="h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                            <code className="block p-2 bg-muted rounded text-xs font-mono break-all">
+                                                {preset.usage}
+                                            </code>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })}
+                    </div>
+                </CardContent>
+            </Card>
 
             {isImporting && (
                 <Card className="border-2 border-primary/20 bg-primary/5">
@@ -198,7 +374,9 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                     <Type className="h-5 w-5 text-primary" />
                                     <div>
                                         <CardTitle className="text-lg">{font.name}</CardTitle>
-                                        <CardDescription className="font-mono text-xs text-muted-foreground mt-1">namespace:font/{font.name.replace(/\.[^/.]+$/, "")}</CardDescription>
+                                        <CardDescription className="font-mono text-xs text-muted-foreground mt-1">
+                                            namespace:font/{font.name.replace(/\.[^/.]+$/, "")}
+                                        </CardDescription>
                                     </div>
                                 </div>
                                 <Button
@@ -249,7 +427,7 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label>Height</Label>
+                                                    <Label>Height <span className="text-xs text-muted-foreground">(vertical size in pixels)</span></Label>
                                                     <Input
                                                         type="number"
                                                         value={provider.height || 8}
@@ -257,7 +435,7 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                     />
                                                 </div>
                                                 <div className="col-span-2 space-y-2">
-                                                    <Label>Ascent</Label>
+                                                    <Label>Ascent <span className="text-xs text-muted-foreground">(vertical position, must be &lt; height)</span></Label>
                                                     <Input
                                                         type="number"
                                                         value={provider.ascent || 8}
@@ -274,7 +452,7 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                     value={provider.chars?.join("\n") || ""}
                                                     onChange={(e) => updateProvider(font.id, index, { chars: e.target.value.split("\n") })}
                                                 />
-                                                <p className="text-xs text-muted-foreground">Each line represents a row in the texture.</p>
+                                                <p className="text-xs text-muted-foreground">Each line represents a row in the texture. Use Unicode characters like \uE000, \uE001, etc.</p>
                                             </div>
                                         </div>
                                     )}
@@ -364,7 +542,11 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                                 <TableCell className="font-mono text-muted-foreground text-xs">
                                                                     U+{char.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0')}
                                                                 </TableCell>
-                                                                <TableCell>{advance}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant={advance < 0 ? "destructive" : "secondary"}>
+                                                                        {advance > 0 ? `+${advance}` : advance}
+                                                                    </Badge>
+                                                                </TableCell>
                                                                 <TableCell>
                                                                     <Button
                                                                         variant="ghost"
@@ -394,8 +576,8 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                                         }
                                                                     }}
                                                                 >
-                                                                    <Input name="char" placeholder="Char" className="w-20 font-mono" maxLength={1} />
-                                                                    <Input name="advance" type="number" placeholder="Pixels" className="flex-1" />
+                                                                    <Input name="char" placeholder="Char (e.g., \uE000)" className="w-32 font-mono" maxLength={1} />
+                                                                    <Input name="advance" type="number" placeholder="Pixels (negative to shift left)" className="flex-1" />
                                                                     <Button type="submit" size="sm" variant="secondary">Add</Button>
                                                                 </form>
                                                             </TableCell>
@@ -403,6 +585,9 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
                                                     </TableBody>
                                                 </Table>
                                             </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                💡 Tip: Use negative values to shift text left (perfect for GUI overlays). Example: -8 pixels
+                                            </p>
                                         </div>
                                     )}
                                 </div>
@@ -430,7 +615,7 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete }: Font
             {fonts.length === 0 && (
                 <div className="text-center py-16 text-muted-foreground border-2 border-dashed rounded-lg bg-muted/10">
                     <p>No custom fonts defined.</p>
-                    <p className="text-sm">Upload a font file or start fresh to begin.</p>
+                    <p className="text-sm">Try a preset above or start fresh to begin.</p>
                 </div>
             )}
         </div>

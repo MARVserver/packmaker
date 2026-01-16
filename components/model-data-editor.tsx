@@ -279,16 +279,18 @@ export function ModelDataEditor({ model, onUpdate, onRemove, availableTextures }
                 <Input
                   id={`model-cmd-${model.id}`}
                   type="number"
-                  value={model.customModelData || ""}
+                  min="0"
+                  value={model.customModelData ?? ""}
                   onChange={(e) => {
                     const value = e.target.value
-                    const numValue = value === "" ? 1 : Number.parseInt(value)
-                    if (!isNaN(numValue)) {
+                    const numValue = value === "" ? 0 : Number.parseInt(value)
+                    if (!isNaN(numValue) && numValue >= 0) {
                       onUpdate({ customModelData: numValue })
                     }
                   }}
                   className="border-2 border-border"
                 />
+                <p className="text-xs text-muted-foreground">Use 0 to override the base item model</p>
               </div>
             </div>
 
