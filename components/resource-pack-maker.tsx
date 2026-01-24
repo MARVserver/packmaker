@@ -836,6 +836,8 @@ export function ResourcePackMaker() {
           customModelDataFlags: [],
           customModelDataStrings: [],
           customModelDataColors: [],
+          elements: parsedData.elements,
+          display: parsedData.display,
           bedrockGeometry,
         }
 

@@ -244,6 +244,11 @@ export function ModelDataEditor({ model, onUpdate, onRemove, availableTextures }
                     <Badge variant="outline" className="bg-secondary/10 text-secondary border-secondary/30">
                       {model.targetItem}
                     </Badge>
+                    {model.elements && model.elements.length > 0 && (
+                      <Badge variant="outline" className="border-primary/30">
+                        {model.elements.length} Elements
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
