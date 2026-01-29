@@ -1793,7 +1793,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           const fontJson = {
             providers: font.providers.map((provider) => {
               const providerJson: any = {
-                type: `minecraft:${provider.type}`,
+                type: provider.type,
               }
 
               // Handle file name and saving
