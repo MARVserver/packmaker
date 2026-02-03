@@ -481,6 +481,7 @@ export function ResourcePackMaker() {
 
   const [mergePacks, setMergePacks] = useState<{ name: string; file: File }[]>([])
   const [mergeConflicts, setMergeConflicts] = useState<MergeConflict[]>([])
+  const [isAnalyzed, setIsAnalyzed] = useState(false)
   const [versionConfigs, setVersionConfigs] = useState<VersionConfig[]>([
     { version: "1.21.6+", format: 63, enabled: true },
     { version: "1.21.4-1.21.5", format: 48, enabled: false },
@@ -2074,6 +2075,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
   const analyzeMergeConflicts = useCallback(async () => {
     setIsProcessing(true)
+    setIsAnalyzed(false)
     updateProgress("Analyzing packs for conflicts...", 10)
 
     try {
@@ -2087,7 +2089,13 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         const zip = await JSZip.loadAsync(pack.file)
 
         for (const [path, zipEntry] of Object.entries(zip.files)) {
-          if (!zipEntry.dir && path.includes("textures/")) {
+          if (zipEntry.dir) continue
+
+          // Check for textures in common locations:
+          // assets/minecraft/textures/item/..., textures/item/..., etc.
+          const isTexture = path.includes("textures/") && (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+
+          if (isTexture) {
             const file = await zipEntry
               .async("blob")
               .then((blob) => new File([blob], path.split("/").pop() || "texture.png"))
@@ -2108,6 +2116,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       }
 
       setMergeConflicts(conflicts)
+      setIsAnalyzed(true)
       updateProgress("Analysis complete!", 100)
 
       setTimeout(() => {
@@ -2120,26 +2129,28 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       setProgress(0)
       alert("Failed to analyze packs for merging.")
     }
-  }, [mergePacks])
+  }, [mergePacks, updateProgress])
 
   const executeMerge = useCallback(async () => {
     setIsProcessing(true)
-    updateProgress("Merging packs...", 10)
+    updateProgress("Merging packs...", 5)
 
     try {
       const JSZip = (await import("jszip")).default
       const mergedTextures = new Map<string, File>()
       const mergedModelsMap = new Map<string, any>()
+      const itemOverrides = new Map<string, any[]>() // To store CMD from assets/minecraft/models/item/*.json
 
       for (let i = 0; i < mergePacks.length; i++) {
         const pack = mergePacks[i]
-        updateProgress(`Merging ${pack.name}...`, 10 + (i / mergePacks.length) * 70)
+        updateProgress(`Merging ${pack.name}...`, 10 + (i / mergePacks.length) * 60)
 
         const zip = await JSZip.loadAsync(pack.file)
 
         for (const [path, zipEntry] of Object.entries(zip.files)) {
           if (zipEntry.dir) continue
 
+          // Handle textures
           if (path.includes("textures/")) {
             const conflict = mergeConflicts.find((c) => c.path === path)
 
@@ -2160,31 +2171,60 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               .async("blob")
               .then((blob) => new File([blob], path.split("/").pop() || "texture.png"))
             mergedTextures.set(path, file)
-          } else if (path.includes("models/")) {
+          }
+          // Handle models
+          else if (path.includes("models/item/")) {
             const content = await zipEntry.async("text")
             try {
               const modelData = JSON.parse(content)
-              mergedModelsMap.set(path, modelData)
+              // If it's a base item (e.g., stick.json) with overrides, store those for CMD extraction
+              if (modelData.overrides) {
+                const itemName = path.split("/").pop()?.replace(".json", "") || ""
+                if (!itemOverrides.has(itemName)) itemOverrides.set(itemName, [])
+                itemOverrides.get(itemName)!.push(...modelData.overrides)
+              } else {
+                mergedModelsMap.set(path, modelData)
+              }
             } catch (e) {
               console.error(`Failed to parse model: ${path}`)
+            }
+          }
+          else if (path.includes("items/")) { // 1.21.4+ items folder
+            const content = await zipEntry.async("text")
+            try {
+              const itemData = JSON.parse(content)
+              // In new format, CMD is often in range_dispatch
+              const itemName = path.split("/").pop()?.replace(".json", "") || ""
+              mergedModelsMap.set(path, itemData)
+            } catch (e) {
+              console.error(`Failed to parse item: ${path}`)
             }
           }
         }
       }
 
-      updateProgress("Processing textures...", 80)
+      updateProgress("Processing results...", 75)
+
       const textureEntries = Array.from(mergedTextures.entries())
       const newTextureDataList = await Promise.all(
         textureEntries.map(async ([path, file]) => {
           const fileName = file.name.replace(/\.[^/.]+$/, "")
           const dimensions = await getImageDimensions(file)
-          const category = path.split("/").find((p) => p === "block" || p === "item") || "item"
+
+          // Detect category more reliably
+          let category = "item"
+          if (path.includes("/block/")) category = "block"
+          else if (path.includes("/entity/")) category = "entity"
+          else if (path.includes("/gui/")) category = "gui"
+          else if (path.includes("/particle/")) category = "particle"
+
+          const cleanPath = path.replace(/^assets\/minecraft\//, "").replace(/\.[^/.]+$/, "")
 
           return {
             id: `texture_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
             name: fileName,
             file: file,
-            path: `textures/${category}/${fileName}`,
+            path: cleanPath,
             size: file.size,
             dimensions,
             isOptimized: false,
@@ -2193,17 +2233,34 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         }),
       )
 
-      updateProgress("Processing models...", 90)
+      updateProgress("Assembling models...", 85)
       const newModelDataList: ModelData[] = []
+
+      // Process extracted models
       for (const [path, modelData] of mergedModelsMap.entries()) {
         const modelName = path.split("/").pop()?.replace(".json", "") || "merged_model"
+
+        // Try to find if this model was used as an override to get its CMD
+        let customModelData = 0
+        let targetItem = "stick"
+
+        // Search in itemOverrides
+        for (const [item, overrides] of itemOverrides.entries()) {
+          const match = overrides.find(o => o.model && (o.model.endsWith(`/${modelName}`) || o.model === `minecraft:item/${modelName}`))
+          if (match) {
+            targetItem = item
+            customModelData = match.predicate?.custom_model_data || 0
+            break
+          }
+        }
+
         const normalizedTextures: Record<string, string> = {}
         if (modelData.textures) {
           Object.entries(modelData.textures).forEach(([tk, tv]) => {
             if (typeof tv === "string") {
-              const clean = tv.replace(/^.*:/, "").replace(/^item\//, "").replace(/^block\//, "")
-              const hasSlash = tv.includes("/")
-              normalizedTextures[tk] = hasSlash ? tv.replace(/^.*:/, "") : `item/${clean}`
+              const clean = tv.replace(/^minecraft:/, "").replace(/^(item|block)\//, "")
+              const category = tv.includes("block/") ? "block" : "item"
+              normalizedTextures[tk] = `${category}/${clean}`
             }
           })
         }
@@ -2211,11 +2268,11 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         newModelDataList.push({
           id: `model_merged_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           name: modelName,
-          customModelData: 0,
+          customModelData,
           parent: modelData.parent || "item/generated",
           textures: normalizedTextures,
-          targetItem: "stick",
-          customModelDataFloats: [],
+          targetItem,
+          customModelDataFloats: [customModelData],
           customModelDataFlags: [],
           customModelDataStrings: [],
           customModelDataColors: [],
@@ -2225,28 +2282,30 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       }
 
       setResourcePack((prev) => {
-        let updatedModels = [...prev.models, ...newModelDataList]
+        let currentModels = [...prev.models]
 
-        // Auto-link new textures to models
-        newTextureDataList.forEach((newTex) => {
-          const cleanFileName = newTex.name.toLowerCase().replace(/\s+/g, "_")
-          const category = newTex.path.split("/")[1] || "item"
-          updatedModels = updatedModels.map((model) => {
-            const cleanModelName = model.name.toLowerCase().replace(/\s+/g, "_")
-            if (cleanModelName === cleanFileName && Object.keys(model.textures).length === 0) {
-              return { ...model, textures: { layer0: `${category}/${newTex.name}` } }
-            }
-            return model
-          })
+        // Avoid duplicate IDs/Names or handle merging into current pack
+        // For simplicity, we append but ensuring CMD uniqueness for the same target item
+        newModelDataList.forEach(newModel => {
+          if (newModel.customModelData === 0) {
+            // If no CMD was found, assign next available for that target item
+            const existingCmds = currentModels.filter(m => m.targetItem === newModel.targetItem).map(m => m.customModelData)
+            let nextCmd = 1
+            while (existingCmds.includes(nextCmd)) nextCmd++
+            newModel.customModelData = nextCmd
+            newModel.customModelDataFloats = [nextCmd]
+          }
+          currentModels.push(newModel)
         })
 
+        // Filter out duplicate textures (by path)
         const newPaths = new Set(newTextureDataList.map((t) => t.path))
-        const filteredTextures = prev.textures.filter((t) => !newPaths.has(t.path))
+        const existingTextures = prev.textures.filter((t) => !newPaths.has(t.path))
 
         return {
           ...prev,
-          textures: [...filteredTextures, ...newTextureDataList],
-          models: updatedModels,
+          textures: [...existingTextures, ...newTextureDataList],
+          models: currentModels,
         }
       })
 
@@ -2255,6 +2314,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       setTimeout(() => {
         setIsProcessing(false)
         setProgress(0)
+        setIsAnalyzed(false)
         setMergePacks([])
         setMergeConflicts([])
         alert(
@@ -3850,32 +3910,42 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                       </div>
                     </div>
                   )}
-                  {mergeConflicts.length > 0 && (
+                  {isAnalyzed && mergeConflicts.length === 0 && (
+                    <div className="p-4 bg-green-500/10 border border-green-500/50 rounded-lg text-green-600 text-sm flex items-center gap-2">
+                      <Check className="h-4 w-4" />
+                      No conflicts detected. You can proceed with the merge.
+                    </div>
+                  )}
+                  {(mergeConflicts.length > 0 || isAnalyzed) && (
                     <div className="space-y-2">
-                      <h4 className="font-semibold text-foreground">Conflicts Found ({mergeConflicts.length})</h4>
-                      <div className="space-y-2 max-h-96 overflow-y-auto">
-                        {mergeConflicts.map((conflict, index) => (
-                          <div key={index} className="p-3 bg-muted rounded-lg space-y-2">
-                            <div className="text-sm text-foreground font-mono">{conflict.path}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Found in: {conflict.packs.map((p) => p.packName).join(", ")}
-                            </div>
-                            <select
-                              value={conflict.resolution}
-                              onChange={(e) => {
-                                const newConflicts = [...mergeConflicts]
-                                newConflicts[index].resolution = e.target.value as any
-                                setMergeConflicts(newConflicts)
-                              }}
-                              className="w-full px-3 py-1 border-2 border-primary rounded bg-background text-foreground"
-                            >
-                              <option value="overwrite">Overwrite (use last)</option>
-                              <option value="skip">Skip (use first)</option>
-                              <option value="rename">Rename (keep all)</option>
-                            </select>
+                      {mergeConflicts.length > 0 && (
+                        <>
+                          <h4 className="font-semibold text-foreground">Conflicts Found ({mergeConflicts.length})</h4>
+                          <div className="space-y-2 max-h-96 overflow-y-auto">
+                            {mergeConflicts.map((conflict, index) => (
+                              <div key={index} className="p-3 bg-muted rounded-lg space-y-2">
+                                <div className="text-sm text-foreground font-mono">{conflict.path}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  Found in: {conflict.packs.map((p) => p.packName).join(", ")}
+                                </div>
+                                <select
+                                  value={conflict.resolution}
+                                  onChange={(e) => {
+                                    const newConflicts = [...mergeConflicts]
+                                    newConflicts[index].resolution = e.target.value as any
+                                    setMergeConflicts(newConflicts)
+                                  }}
+                                  className="w-full px-3 py-1 border-2 border-primary rounded bg-background text-foreground"
+                                >
+                                  <option value="overwrite">Overwrite (use last)</option>
+                                  <option value="skip">Skip (use first)</option>
+                                  <option value="rename">Rename (keep all)</option>
+                                </select>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        </>
+                      )}
                       <button
                         onClick={executeMerge}
                         disabled={isProcessing}
