@@ -503,6 +503,7 @@ export function ResourcePackMaker() {
 
   const [targetItemInput, setTargetItemInput] = useState<Record<string, string>>({})
   const [showTargetItemSuggestions, setShowTargetItemSuggestions] = useState<Record<string, boolean>>({})
+  const [autoCreateModel, setAutoCreateModel] = useState(true)
 
   const [editingTextureAnimation, setEditingTextureAnimation] = useState<string | null>(null)
 
@@ -725,15 +726,54 @@ export function ResourcePackMaker() {
 
       setResourcePack((prev) => {
         const cleanFileName = fileName.toLowerCase().replace(/\s+/g, "_")
+        let updatedModels = [...prev.models]
+        let foundExisting = false
 
-        // Automatically link to models with same name that have no textures
-        const updatedModels = prev.models.map(model => {
-          const cleanModelName = model.name.toLowerCase().replace(/\s+/g, "_")
-          if (cleanModelName === cleanFileName && Object.keys(model.textures).length === 0) {
-            return { ...model, textures: { layer0: `${category}/${fileName}` } }
+        // Check if a model with this name already exists
+        const existingModelIndex = updatedModels.findIndex(m => m.name.toLowerCase().replace(/\s+/g, "_") === cleanFileName)
+
+        if (existingModelIndex !== -1) {
+          foundExisting = true
+          // If it exists and has no textures, link it
+          if (Object.keys(updatedModels[existingModelIndex].textures).length === 0) {
+            updatedModels[existingModelIndex] = {
+              ...updatedModels[existingModelIndex],
+              textures: { layer0: `${category}/${fileName}` }
+            }
           }
-          return model
-        })
+        } else if (autoCreateModel) {
+          // Auto-create model if enabled and doesn't exist
+          const existingCmds = prev.models.map(m => m.customModelData)
+          let newCmd = 1
+          while (existingCmds.includes(newCmd)) {
+            newCmd++
+          }
+
+          const newModel: ModelData = {
+            id: `model_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: fileName,
+            customModelData: newCmd,
+            parent: "item/generated",
+            textures: { layer0: `${category}/${fileName}` },
+            targetItem: category === "item" ? "stick" : (category === "block" ? "stone" : "stick"),
+            customModelDataFloats: [],
+            customModelDataFlags: [],
+            customModelDataStrings: [],
+            customModelDataColors: [],
+            renderType: "minecraft:item/generated",
+            bedrockMaterial: "entity_alphatest",
+          }
+          updatedModels.push(newModel)
+        } else {
+          // Original behavior: Automatically link to models with same name that have no textures
+          updatedModels = prev.models.map(model => {
+            const cleanModelName = model.name.toLowerCase().replace(/\s+/g, "_")
+            if (cleanModelName === cleanFileName && Object.keys(model.textures).length === 0) {
+              return { ...model, textures: { layer0: `${category}/${fileName}` } }
+            }
+            return model
+          })
+        }
 
         const updatedTextures = [
           ...prev.textures.filter((t) => t.path !== newTexture.path),
@@ -3719,6 +3759,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               onUpdate={updateTexture}
               onOptimize={optimizeTexture}
               onOptimizeAll={optimizeAllTextures}
+              autoCreateModel={autoCreateModel}
+              onToggleAutoCreateModel={setAutoCreateModel}
             />
           )}
 
