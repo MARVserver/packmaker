@@ -503,6 +503,7 @@ export function ResourcePackMaker() {
 
   const [targetItemInput, setTargetItemInput] = useState<Record<string, string>>({})
   const [showTargetItemSuggestions, setShowTargetItemSuggestions] = useState<Record<string, boolean>>({})
+  const [autoCreateModel, setAutoCreateModel] = useState(true)
 
   const [editingTextureAnimation, setEditingTextureAnimation] = useState<string | null>(null)
 
@@ -725,15 +726,54 @@ export function ResourcePackMaker() {
 
       setResourcePack((prev) => {
         const cleanFileName = fileName.toLowerCase().replace(/\s+/g, "_")
+        let updatedModels = [...prev.models]
+        let foundExisting = false
 
-        // Automatically link to models with same name that have no textures
-        const updatedModels = prev.models.map(model => {
-          const cleanModelName = model.name.toLowerCase().replace(/\s+/g, "_")
-          if (cleanModelName === cleanFileName && Object.keys(model.textures).length === 0) {
-            return { ...model, textures: { layer0: `${category}/${fileName}` } }
+        // Check if a model with this name already exists
+        const existingModelIndex = updatedModels.findIndex(m => m.name.toLowerCase().replace(/\s+/g, "_") === cleanFileName)
+
+        if (existingModelIndex !== -1) {
+          foundExisting = true
+          // If it exists and has no textures, link it
+          if (Object.keys(updatedModels[existingModelIndex].textures).length === 0) {
+            updatedModels[existingModelIndex] = {
+              ...updatedModels[existingModelIndex],
+              textures: { layer0: `${category}/${fileName}` }
+            }
           }
-          return model
-        })
+        } else if (autoCreateModel) {
+          // Auto-create model if enabled and doesn't exist
+          const existingCmds = prev.models.map(m => m.customModelData)
+          let newCmd = 1
+          while (existingCmds.includes(newCmd)) {
+            newCmd++
+          }
+
+          const newModel: ModelData = {
+            id: `model_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: fileName,
+            customModelData: newCmd,
+            parent: "item/generated",
+            textures: { layer0: `${category}/${fileName}` },
+            targetItem: category === "item" ? "stick" : (category === "block" ? "stone" : "stick"),
+            customModelDataFloats: [],
+            customModelDataFlags: [],
+            customModelDataStrings: [],
+            customModelDataColors: [],
+            renderType: "minecraft:item/generated",
+            bedrockMaterial: "entity_alphatest",
+          }
+          updatedModels.push(newModel)
+        } else {
+          // Original behavior: Automatically link to models with same name that have no textures
+          updatedModels = prev.models.map(model => {
+            const cleanModelName = model.name.toLowerCase().replace(/\s+/g, "_")
+            if (cleanModelName === cleanFileName && Object.keys(model.textures).length === 0) {
+              return { ...model, textures: { layer0: `${category}/${fileName}` } }
+            }
+            return model
+          })
+        }
 
         const updatedTextures = [
           ...prev.textures.filter((t) => t.path !== newTexture.path),
@@ -1843,18 +1883,28 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             }
 
             if (provider.type === "bitmap") {
-              // Determine bitmap path
+              // Determine bitmap path based on user input or file
               let bitmapPath = provider.file
 
               if (fileToSave && extension === "png") {
-                // If we have a file, upload it and point to it
-                const saveName = `${filename}.${extension}`
+                let saveName = `${filename}.${extension}`
+
+                // If user specified a custom path 'minecraft:font/my.png', use 'my.png' as save name
+                if (bitmapPath) {
+                  const customName = bitmapPath.split("/").pop()
+                  if (customName) saveName = customName
+                }
+
+                // Force create the texture at the location expected by the path
                 const savePath = `assets/minecraft/textures/font/${saveName}`
                 zip.file(savePath, fileToSave)
 
-                // If the user didn't specify a custom path, use the one we just created
+                // Ensure bitmapPath matches if it wasn't set or lacks namespace
                 if (!bitmapPath) {
                   bitmapPath = `minecraft:font/${saveName}`
+                } else if (!bitmapPath.includes(':')) {
+                  // Add namespace if missing
+                  bitmapPath = `minecraft:font/${bitmapPath}`
                 }
               }
 
@@ -1872,7 +1922,13 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               let ttfPath = provider.file
 
               if (fileToSave && (extension === "ttf" || extension === "otf")) {
-                const saveName = `${filename}.${extension}`
+                let saveName = `${filename}.${extension}`
+
+                if (ttfPath) {
+                  const customName = ttfPath.split("/").pop()
+                  if (customName) saveName = customName
+                }
+
                 const savePath = `assets/minecraft/font/${saveName}`
                 zip.file(savePath, fileToSave)
 
@@ -3703,6 +3759,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               onUpdate={updateTexture}
               onOptimize={optimizeTexture}
               onOptimizeAll={optimizeAllTextures}
+              autoCreateModel={autoCreateModel}
+              onToggleAutoCreateModel={setAutoCreateModel}
             />
           )}
 
