@@ -85,6 +85,7 @@ export async function importBedrockPack(
         languages: [],
         particles: [],
         shaders: [],
+        blocks: [],
         packIcon: undefined,
         author: "",
         website: "",
