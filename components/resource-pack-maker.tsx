@@ -23,6 +23,7 @@ import {
   convertFontsToBedrock
 } from "./resource-pack/converters"
 import { FontManager } from "./resource-pack/font-manager"
+import { BlockManager } from "./resource-pack/block-manager"
 import { SoundManager } from "./resource-pack/sound-manager"
 import { ParticleManager } from "./resource-pack/particle-manager"
 import { ShaderManager } from "./resource-pack/shader-manager"
@@ -38,7 +39,8 @@ import {
   ShaderFile,
   GeyserMapping,
   MergeConflict,
-  VersionConfig
+  VersionConfig,
+  BlockData
 } from "./resource-pack/types"
 
 const validateModel = (model: ModelData): { isValid: boolean; errors: string[] } => {
@@ -98,7 +100,8 @@ const translations = {
       advanced: "高度な設定",
       merge: "パックマージ",
       versions: "複数バージョン",
-      geyser: "Geyser マッピング", // Added Geyser tab translation
+      geyser: "Geyser マッピング",
+      blocks: "ブロック管理",
     },
     general: {
       packName: "パック名",
@@ -225,7 +228,8 @@ const translations = {
       advanced: "Advanced",
       merge: "Merge Packs",
       versions: "Multi-Version",
-      geyser: "Geyser Mapping", // Added Geyser tab translation
+      geyser: "Geyser Mapping",
+      blocks: "Blocks",
     },
     general: {
       packName: "Pack Name",
@@ -466,7 +470,8 @@ export function ResourcePackMaker() {
     author: "",
     website: "",
     license: "All Rights Reserved",
-    languages: []
+    languages: [],
+    blocks: []
   })
 
   const [activeTab, setActiveTab] = useState("general")
@@ -603,6 +608,36 @@ export function ResourcePackMaker() {
       models: [...prev.models, newModel],
     }))
   }, [resourcePack.models])
+
+  const addBlock = useCallback(() => {
+    const newBlock: BlockData = {
+      id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      name: `New Block ${resourcePack.blocks.length + 1}`,
+      identifier: "custom_block",
+      textures: { all: "block/stone" },
+    }
+
+    setResourcePack((prev) => ({
+      ...prev,
+      blocks: [...prev.blocks, newBlock],
+    }))
+  }, [resourcePack.blocks])
+
+  const updateBlock = useCallback((blockId: string, updatedBlock: Partial<BlockData>) => {
+    setResourcePack((prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((block) =>
+        block.id === blockId ? { ...block, ...updatedBlock } : block
+      ),
+    }))
+  }, [])
+
+  const deleteBlock = useCallback((blockId: string) => {
+    setResourcePack((prev) => ({
+      ...prev,
+      blocks: prev.blocks.filter((block) => block.id !== blockId),
+    }))
+  }, [])
 
   const updateModel = useCallback((modelId: string, updatedModel: Partial<ModelData>) => {
     setResourcePack((prev) => ({
@@ -1487,6 +1522,38 @@ export function ResourcePackMaker() {
         }
       }
 
+      // Add custom blocks for Bedrock
+      if (resourcePack.blocks.length > 0) {
+        updateProgress("Adding Bedrock block definitions...", 50)
+        const blocksJson: any = {}
+        const terrainTextureData: any = {
+          resource_pack_name: "vanilla",
+          texture_name: "atlas.terrain",
+          padding: 8,
+          num_mip_levels: 4,
+          texture_data: {}
+        }
+
+        resourcePack.blocks.forEach(block => {
+          const identifier = block.identifier.includes(":") ? block.identifier : `custom:${block.identifier}`
+          blocksJson[identifier] = {
+            textures: block.textures.all || block.textures.up || "stone",
+            sound: "stone"
+          }
+
+          // Add block textures to terrain_texture.json
+          Object.entries(block.textures).forEach(([face, texPath]) => {
+            const textureName = texPath.replace(/^.*[\\/]/, "").replace(/\.[^/.]+$/, "")
+            terrainTextureData.texture_data[textureName] = {
+              textures: `textures/blocks/${textureName}`
+            }
+          })
+        })
+
+        zip.file("blocks.json", JSON.stringify(blocksJson, null, 2))
+        zip.file("textures/terrain_texture.json", JSON.stringify(terrainTextureData, null, 2))
+      }
+
       // Add textures
       updateProgress("Adding Bedrock textures...", 75)
 
@@ -1820,6 +1887,39 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         zip.file(`assets/minecraft/models/item/${modelName}.json`, JSON.stringify(modelJson, null, 2))
       }
 
+      // Generate custom block files for Java
+      if (resourcePack.blocks.length > 0) {
+        updateProgress("Creating block definitions...", 70)
+        for (const block of resourcePack.blocks) {
+          const blockName = block.identifier.toLowerCase().replace(/\s+/g, "_")
+
+          // Blockstate file
+          const blockstate = {
+            variants: {
+              "": { model: `minecraft:block/${blockName}` }
+            }
+          }
+          zip.file(`assets/minecraft/blockstates/${blockName}.json`, JSON.stringify(blockstate, null, 2))
+
+          // Block model file
+          const blockModel: any = {
+            parent: block.parent || "block/cube_all",
+            textures: {}
+          }
+
+          // Map block faces correctly to Java format
+          Object.entries(block.textures).forEach(([face, texPath]) => {
+            const cleanTex = texPath.replace(/^block\//, "").replace(/^minecraft:block\//, "")
+            blockModel.textures[face] = `minecraft:block/${cleanTex}`
+          })
+
+          if (block.elements) blockModel.elements = block.elements
+          if (block.display) blockModel.display = block.display
+
+          zip.file(`assets/minecraft/models/block/${blockName}.json`, JSON.stringify(blockModel, null, 2))
+        }
+      }
+
       // Add textures
       updateProgress("Adding textures...", 80)
 
@@ -2091,14 +2191,20 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         for (const [path, zipEntry] of Object.entries(zip.files)) {
           if (zipEntry.dir) continue
 
-          // Check for textures in common locations:
-          // assets/minecraft/textures/item/..., textures/item/..., etc.
-          const isTexture = path.includes("textures/") && (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+          // Check for textures in common locations (Java and Bedrock):
+          // assets/minecraft/textures/..., textures/item/..., textures/blocks/..., etc.
+          const isTexture = path.includes("textures/") &&
+            (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
 
-          if (isTexture) {
+          const isBedrockModel = path.startsWith("models/entity/") && path.endsWith(".json")
+          const isAttachable = path.startsWith("attachables/") && path.endsWith(".json")
+          const isMetadata = path.endsWith("item_texture.json") || path.endsWith("terrain_texture.json") || path.endsWith("blocks.json")
+
+          if (isTexture || isBedrockModel || isAttachable || isMetadata) {
+            const fileName = path.split("/").pop() || "file"
             const file = await zipEntry
               .async("blob")
-              .then((blob) => new File([blob], path.split("/").pop() || "texture.png"))
+              .then((blob) => new File([blob], fileName))
 
             if (!textureMap.has(path)) {
               textureMap.set(path, [])
@@ -2193,12 +2299,38 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             const content = await zipEntry.async("text")
             try {
               const itemData = JSON.parse(content)
-              // In new format, CMD is often in range_dispatch
-              const itemName = path.split("/").pop()?.replace(".json", "") || ""
               mergedModelsMap.set(path, itemData)
             } catch (e) {
               console.error(`Failed to parse item: ${path}`)
             }
+          }
+          // Handle Bedrock models
+          else if (path.includes("models/entity/") && path.endsWith(".json")) {
+            const content = await zipEntry.async("text")
+            try {
+              const modelData = JSON.parse(content)
+              mergedModelsMap.set(path, modelData)
+            } catch (e) {
+              console.error(`Failed to parse Bedrock model: ${path}`)
+            }
+          }
+          // Handle Bedrock attachables
+          else if (path.includes("attachables/") && path.endsWith(".json")) {
+            const content = await zipEntry.async("text")
+            try {
+              const attachableData = JSON.parse(content)
+              mergedModelsMap.set(path, attachableData)
+            } catch (e) {
+              console.error(`Failed to parse Bedrock attachable: ${path}`)
+            }
+          }
+          // Handle Bedrock metadata
+          else if (path.endsWith("item_texture.json") || path.endsWith("terrain_texture.json") || path.endsWith("blocks.json")) {
+            const content = await zipEntry.async("text")
+            try {
+              const metadata = JSON.parse(content)
+              mergedModelsMap.set(path, metadata) // Temporary store metadata payload
+            } catch (e) { }
           }
         }
       }
@@ -2235,9 +2367,68 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
       updateProgress("Assembling models...", 85)
       const newModelDataList: ModelData[] = []
+      const newBlockDataList: BlockData[] = []
 
-      // Process extracted models
+      // Track Bedrock attachments
+      const bedrockGeos = new Map<string, any>()
+      const bedrockAttachables = new Map<string, any>()
+      const bedrockBlocks = new Map<string, any>()
+      const bedrockItemTextures = new Map<string, any>()
+      const bedrockTerrainTextures = new Map<string, any>()
+
+      // 1. First pass: sort merged objects into categories
+      for (const [path, data] of mergedModelsMap.entries()) {
+        if (path.includes("models/entity/")) bedrockGeos.set(path, data)
+        else if (path.includes("attachables/")) bedrockAttachables.set(path, data)
+        else if (path.endsWith("blocks.json")) {
+          Object.assign(bedrockBlocks, data)
+        }
+        else if (path.endsWith("item_texture.json")) {
+          if (data.texture_data) Object.assign(bedrockItemTextures, data.texture_data)
+        }
+        else if (path.endsWith("terrain_texture.json")) {
+          if (data.texture_data) Object.assign(bedrockTerrainTextures, data.texture_data)
+        }
+      }
+
+      // 2. Process Bedrock Models (Geometries + Attachables)
+      for (const [path, geoData] of bedrockGeos.entries()) {
+        const modelName = path.split("/").pop()?.replace(".geo.json", "").replace(".json", "") || "bedrock_model"
+
+        // Try to find matching attachable
+        const attachablePath = Array.from(bedrockAttachables.keys()).find(p => p.includes(modelName))
+        const attachableData = attachablePath ? bedrockAttachables.get(attachablePath) : undefined
+
+        newModelDataList.push({
+          id: `model_bedrock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          name: modelName,
+          customModelData: 0, // Bedrock doesn't use CMD
+          parent: "item/generated",
+          textures: {}, // Will be filled if needed or use bedrockMaterial
+          targetItem: modelName,
+          bedrockGeometry: geoData,
+          bedrockAttachable: attachableData,
+          bedrockMaterial: attachableData?.["minecraft:attachable"]?.description?.materials?.default || "entity_alphatest"
+        })
+      }
+
+      // 3. Process Bedrock Blocks
+      for (const [blockId, blockData] of Object.entries(bedrockBlocks)) {
+        if (typeof blockData !== "object") continue
+        const bData = blockData as any
+        const cleanId = blockId.replace(/^custom:/, "").replace(/^minecraft:/, "")
+
+        newBlockDataList.push({
+          id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          name: cleanId.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
+          identifier: cleanId,
+          textures: typeof bData.textures === "string" ? { all: bData.textures } : (bData.textures || {}),
+        })
+      }
+
+      // 4. Process Java Models (Remaining)
       for (const [path, modelData] of mergedModelsMap.entries()) {
+        if (!path.includes("models/item/") && !path.includes("items/")) continue
         const modelName = path.split("/").pop()?.replace(".json", "") || "merged_model"
 
         // Try to find if this model was used as an override to get its CMD
@@ -2306,6 +2497,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           ...prev,
           textures: [...existingTextures, ...newTextureDataList],
           models: currentModels,
+          blocks: [...prev.blocks, ...newBlockDataList]
         }
       })
 
@@ -2394,6 +2586,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               sounds: data.sounds || [],
               particles: data.particles || [],
               shaders: data.shaders || [],
+              blocks: data.blocks || [],
               packIcon: undefined,
               author: data.pack.author || "",
               website: data.pack.website || "",
@@ -2464,6 +2657,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             website: "",
             license: "All Rights Reserved",
             languages: [],
+            blocks: []
           }
 
           // Read pack.mcmeta
@@ -3233,6 +3427,10 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             <div className="mt-1 text-2xl font-bold text-card-foreground">{packStats.totalModels}</div>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-sm font-medium text-muted-foreground">Blocks</div>
+            <div className="mt-1 text-2xl font-bold text-card-foreground">{resourcePack.blocks.length}</div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
             <div className="text-sm font-medium text-muted-foreground">{t.models.validModels}</div>
             <div className="mt-1 text-2xl font-bold text-green-600">{packStats.validModels}</div>
           </div>
@@ -3267,7 +3465,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         <div className="rounded-lg border-2 border-primary bg-card p-6">
           {/* Tabs */}
           <div className="mb-6 flex flex-wrap gap-2">
-            {["general", "models", "textures", "fonts", "sounds", "particles", "shaders"].map((tab) => (
+            {["general", "models", "blocks", "textures", "fonts", "sounds", "particles", "shaders"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -3472,6 +3670,16 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === "blocks" && (
+            <BlockManager
+              blocks={resourcePack.blocks}
+              textures={resourcePack.textures}
+              onAdd={addBlock}
+              onDelete={deleteBlock}
+              onUpdate={updateBlock}
+            />
           )}
 
           {activeTab === "models" && (

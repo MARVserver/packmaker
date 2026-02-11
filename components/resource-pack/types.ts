@@ -27,6 +27,18 @@ export interface ModelData {
     isDefaultOverride?: boolean // If true, this model replaces the default item texture (no CMD required)
 }
 
+export interface BlockData {
+    id: string
+    name: string
+    identifier: string
+    textures: Record<string, string> // e.g., { all: "block/stone", up: "block/grass_top" }
+    parent?: string
+    elements?: any[]
+    display?: any
+    isValid?: boolean
+    validationErrors?: string[]
+}
+
 export interface TextureData {
     id: string
     name: string
@@ -117,6 +129,7 @@ export interface ResourcePack {
     languages: LanguageFile[]
     particles: CustomParticle[]
     shaders: ShaderFile[]
+    blocks: BlockData[]
     packIcon?: File
     author?: string
     website?: string
