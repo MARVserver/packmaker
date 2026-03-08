@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import React, { useState, useCallback, useMemo, useEffect, ChangeEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -1146,6 +1146,10 @@ export function ResourcePackMaker() {
           bedrockGeometry,
           renderType: "minecraft:item/generated",
           bedrockMaterial: "entity_alphatest",
+          isEquippable: false,
+          equippableSlot: "head",
+          isEquipmentModel: false,
+          equipmentLayers: {}
         }
 
         // Batch state update for performance and consistency
@@ -1772,10 +1776,26 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           // Generate individual item definitions for each model to support [minecraft:item_model=name]
           sortedModels.forEach(model => {
             const modelName = model.name.toLowerCase().replace(/\s+/g, "_")
-            const singleItemDef = {
+            const singleItemDef: any = {
               model: {
                 type: "minecraft:model",
                 model: `minecraft:item/${modelName}`
+              }
+            }
+            // Add equippable component (1.21.2+)
+            if (model.isEquippable) {
+              singleItemDef.components = {
+                "minecraft:equippable": {
+                  slot: model.equippableSlot || "head"
+                }
+              }
+              if (model.equippableModel) {
+                singleItemDef.components["minecraft:equippable"].model =
+                  model.equippableModel.includes(":") ? model.equippableModel : `minecraft:${model.equippableModel}`
+              }
+              if (model.equippableCameraOverlay) {
+                singleItemDef.components["minecraft:equippable"].camera_overlay =
+                  model.equippableCameraOverlay.includes(":") ? model.equippableCameraOverlay : `minecraft:${model.equippableCameraOverlay}`
               }
             }
             zip.file(`assets/minecraft/items/${modelName}.json`, JSON.stringify(singleItemDef, null, 2))
@@ -1886,6 +1906,19 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
         zip.file(`assets/minecraft/models/item/${modelName}.json`, JSON.stringify(modelJson, null, 2))
       }
+
+      // Generate equipment models (1.21.2+)
+      validModels.filter((m: any) => m.isEquipmentModel).forEach((model: any) => {
+        const equipModelName = (model.equippableModel || model.name).toLowerCase().replace(/\s+/g, "_")
+        const equipModelJson: any = {
+          layers: model.equipmentLayers || {
+            humanoid: [
+              { texture: `minecraft:equipment/${equipModelName}` }
+            ]
+          }
+        }
+        zip.file(`assets/minecraft/models/equipment/${equipModelName}.json`, JSON.stringify(equipModelJson, null, 2))
+      })
 
       // Generate custom block files for Java
       if (resourcePack.blocks.length > 0) {
@@ -3989,8 +4022,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                   <input
                                     type="text"
                                     value={(model.customModelDataFloats || []).join(", ")}
-                                    onChange={(e) => {
-                                      const floats = e.target.value.split(",").map(f => parseFloat(f.trim())).filter(f => !isNaN(f))
+                                    onChange={(e: any) => {
+                                      const floats = e.target.value.split(",").map((f: string) => parseFloat(f.trim())).filter((f: number) => !isNaN(f))
                                       updateModel(model.id, { customModelDataFloats: floats })
                                     }}
                                     placeholder="e.g. 1.0, 2.0"
@@ -4002,8 +4035,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                   <input
                                     type="text"
                                     value={(model.customModelDataStrings || []).join(", ")}
-                                    onChange={(e) => {
-                                      const strings = e.target.value.split(",").map(s => s.trim()).filter(s => s.length > 0)
+                                    onChange={(e: any) => {
+                                      const strings = e.target.value.split(",").map((s: string) => s.trim()).filter((s: string) => s.length > 0)
                                       updateModel(model.id, { customModelDataStrings: strings })
                                     }}
                                     placeholder="e.g. variant1, team"
@@ -4033,6 +4066,59 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                       + Flag
                                     </button>
                                   </div>
+                                </div>
+                                <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
+                                  <label className="block text-[10px] uppercase font-bold text-muted-foreground">Equipment (1.21.2+)</label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      id={`equippable-${model.id}`}
+                                      checked={model.isEquippable || false}
+                                      onChange={(e: any) => updateModel(model.id, { isEquippable: (e.target as any).checked })}
+                                      className="h-3 w-3"
+                                    />
+                                    <label htmlFor={`equippable-${model.id}`} className="text-[9px] text-muted-foreground">Is Equippable?</label>
+                                  </div>
+                                  {model.isEquippable && (
+                                    <>
+                                      <div className="space-y-1">
+                                        <span className="text-[9px] text-muted-foreground italic">Slot</span>
+                                        <select
+                                          value={model.equippableSlot || "head"}
+                                          onChange={(e: any) => updateModel(model.id, { equippableSlot: e.target.value as any })}
+                                          className="w-full rounded bg-input border border-border px-1 py-0.5 text-[10px]"
+                                        >
+                                          <option value="head">Head</option>
+                                          <option value="chest">Chest</option>
+                                          <option value="legs">Legs</option>
+                                          <option value="feet">Feet</option>
+                                          <option value="body">Body (Wolf/Horse)</option>
+                                          <option value="any">Any</option>
+                                        </select>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <span className="text-[9px] text-muted-foreground italic">Equipment Model ID</span>
+                                        <input
+                                          type="text"
+                                          value={model.equippableModel || ""}
+                                          onChange={(e: any) => updateModel(model.id, { equippableModel: e.target.value })}
+                                          placeholder="e.g. custom_armor"
+                                          className="w-full rounded bg-input border border-border px-1 py-0.5 text-[10px]"
+                                        />
+                                        <p className="text-[8px] text-muted-foreground">Leave empty to use the 3D mesh for head items.</p>
+                                      </div>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <input
+                                          type="checkbox"
+                                          id={`isEquipModel-${model.id}`}
+                                          checked={model.isEquipmentModel || false}
+                                          onChange={(e: any) => updateModel(model.id, { isEquipmentModel: (e.target as any).checked })}
+                                          className="h-3 w-3"
+                                        />
+                                        <label htmlFor={`isEquipModel-${model.id}`} className="text-[9px] text-muted-foreground italic">Register Equipment Model JSON</label>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                                 <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
                                   <label className="block text-[10px] uppercase font-bold text-muted-foreground">Colors (1.21.2+)</label>

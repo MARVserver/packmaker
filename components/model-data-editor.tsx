@@ -435,55 +435,111 @@ export function ModelDataEditor({ model, onUpdate, onRemove, availableTextures }
                     </Badge>
                   ))}
                 </div>
-              </div>
-            </div>
+                {/* Equipment (1.21.2+) */}
+                <div className="space-y-4 pt-4 border-t border-border/50">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="isEquippable"
+                      checked={model.isEquippable}
+                      onCheckedChange={(checked) => onUpdate({ isEquippable: !!checked })}
+                    />
+                    <Label htmlFor="isEquippable" className="text-sm cursor-pointer font-bold">Equippable (1.21.2+)</Label>
+                  </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Textures</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Texture key (e.g., layer0)"
-                    value={newTextureKey}
-                    onChange={(e) => setNewTextureKey(e.target.value)}
-                    className="w-40 border-2 border-border"
-                  />
-                  <Button onClick={addTexture} size="sm" className="bg-secondary hover:bg-secondary/90">
-                    <Plus className="w-4 h-4" />
-                  </Button>
+                  {model.isEquippable && (
+                    <div className="pl-6 space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm">Slot</Label>
+                        <Select
+                          value={model.equippableSlot || "head"}
+                          onValueChange={(value) => onUpdate({ equippableSlot: value as any })}
+                        >
+                          <SelectTrigger className="border-2 border-border">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="any">Any</SelectItem>
+                            <SelectItem value="head">Head</SelectItem>
+                            <SelectItem value="chest">Chest</SelectItem>
+                            <SelectItem value="legs">Legs</SelectItem>
+                            <SelectItem value="feet">Feet</SelectItem>
+                            <SelectItem value="body">Body</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-sm">Equipment Model ID (Optional)</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            placeholder="e.g. custom_armor"
+                            value={model.equippableModel || ""}
+                            onChange={(e) => onUpdate({ equippableModel: e.target.value })}
+                            className="border-2 border-border"
+                          />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">If empty, head items use the 3D item model mesh.</p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="isEquipmentModel"
+                          checked={model.isEquipmentModel}
+                          onCheckedChange={(checked) => onUpdate({ isEquipmentModel: !!checked })}
+                        />
+                        <Label htmlFor="isEquipmentModel" className="text-sm cursor-pointer">Register Equipment Model JSON</Label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {Object.entries(model.textures).map(([key, value]) => (
-                <div key={key} className="flex items-center gap-2">
-                  <Label className="w-20 text-sm">{key}:</Label>
-                  <Select value={value} onValueChange={(newValue) => updateTexture(key, newValue)}>
-                    <SelectTrigger className="flex-1 border-2 border-border">
-                      <SelectValue placeholder="Select texture" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableTextures.map((texture) => (
-                        <SelectItem key={texture.id} value={texture.path}>
-                          {texture.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeTexture(key)}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label>Textures</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Texture key (e.g., layer0)"
+                      value={newTextureKey}
+                      onChange={(e) => setNewTextureKey(e.target.value)}
+                      className="w-40 border-2 border-border"
+                    />
+                    <Button onClick={addTexture} size="sm" className="bg-secondary hover:bg-secondary/90">
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
-              ))}
 
-              {Object.keys(model.textures).length === 0 && (
-                <p className="text-sm text-muted-foreground">No textures assigned. Add a texture key to get started.</p>
-              )}
-            </div>
+                {Object.entries(model.textures).map(([key, value]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <Label className="w-20 text-sm">{key}:</Label>
+                    <Select value={value} onValueChange={(newValue) => updateTexture(key, newValue)}>
+                      <SelectTrigger className="flex-1 border-2 border-border">
+                        <SelectValue placeholder="Select texture" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTextures.map((texture) => (
+                          <SelectItem key={texture.id} value={texture.path}>
+                            {texture.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeTexture(key)}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+
+                {Object.keys(model.textures).length === 0 && (
+                  <p className="text-sm text-muted-foreground">No textures assigned. Add a texture key to get started.</p>
+                )}
+              </div>
           </CardContent>
         </CollapsibleContent>
       </Collapsible>

@@ -25,6 +25,20 @@ export interface ModelData {
     renderType?: "minecraft:item/generated" | "minecraft:item/handheld" | "translucent" | "cutout" // Added for Java transparency
     bedrockMaterial?: "entity_alphatest" | "entity_alphablend" | "entity_emissive_alpha" // Added for Bedrock transparency
     isDefaultOverride?: boolean // If true, this model replaces the default item texture (no CMD required)
+    // Equippable (1.21.2+)
+    isEquippable?: boolean
+    equippableSlot?: "head" | "chest" | "legs" | "feet" | "body" | "any"
+    equippableModel?: string // Reference to assets/minecraft/models/equipment/
+    equippableCameraOverlay?: string
+    isEquipmentModel?: boolean // If true, this "model" is actually an equipment model definition (layers)
+    equipmentLayers?: {
+        humanoid?: string[]
+        humanoid_leggings?: string[]
+        wings?: string[]
+        wolf_body?: string[]
+        horse_body?: string[]
+        llama_body?: string[]
+    }
 }
 
 export interface BlockData {
