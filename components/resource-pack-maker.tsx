@@ -3767,9 +3767,20 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                 placeholder="Model Name"
                               />
                               <div className="flex items-center gap-2 mt-0.5">
-                                <p className="text-xs text-muted-foreground whitespace-nowrap">
-                                  {model.isDefaultOverride ? "Default Override" : `CMD: ${model.customModelData}`}
-                                </p>
+                                {!model.isDefaultOverride && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-muted-foreground font-bold">CMD:</span>
+                                    <input
+                                      type="number"
+                                      value={model.customModelData}
+                                      onChange={(e) => updateModel(model.id, { customModelData: parseInt(e.target.value) || 0 })}
+                                      className="w-16 h-5 text-[10px] bg-muted/50 border border-border rounded px-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                                    />
+                                  </div>
+                                )}
+                                {model.isDefaultOverride && (
+                                  <p className="text-xs text-muted-foreground whitespace-nowrap">Default Override</p>
+                                )}
                                 {model.bedrockGeometry && (
                                   <Badge variant="secondary" className="h-4 px-1 text-[8px] bg-cyan-100 text-cyan-700 hover:bg-cyan-100 border-cyan-200">
                                     Bedrock Geo
@@ -3970,6 +3981,89 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                   <option value="item/generated">item/generated</option>
                                   <option value="item/handheld">item/handheld</option>
                                 </select>
+                              </div>
+                              <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
+                                <label className="block text-[10px] uppercase font-bold text-muted-foreground">Extra CMD Fields (1.21.2+)</label>
+                                <div className="space-y-1">
+                                  <span className="text-[9px] text-muted-foreground italic">Additional Floats</span>
+                                  <input
+                                    type="text"
+                                    value={(model.customModelDataFloats || []).join(", ")}
+                                    onChange={(e) => {
+                                      const floats = e.target.value.split(",").map(f => parseFloat(f.trim())).filter(f => !isNaN(f))
+                                      updateModel(model.id, { customModelDataFloats: floats })
+                                    }}
+                                    placeholder="e.g. 1.0, 2.0"
+                                    className="w-full rounded bg-input border border-border px-1 py-0.5 text-[10px]"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-[9px] text-muted-foreground italic">Strings</span>
+                                  <input
+                                    type="text"
+                                    value={(model.customModelDataStrings || []).join(", ")}
+                                    onChange={(e) => {
+                                      const strings = e.target.value.split(",").map(s => s.trim()).filter(s => s.length > 0)
+                                      updateModel(model.id, { customModelDataStrings: strings })
+                                    }}
+                                    placeholder="e.g. variant1, team"
+                                    className="w-full rounded bg-input border border-border px-1 py-0.5 text-[10px]"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] text-muted-foreground">Flags:</span>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {(model.customModelDataFlags || []).map((flag: boolean, idx: number) => (
+                                      <input
+                                        key={idx}
+                                        type="checkbox"
+                                        checked={flag}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                          const flags = [...(model.customModelDataFlags || [])]
+                                          flags[idx] = e.target.checked
+                                          updateModel(model.id, { customModelDataFlags: flags })
+                                        }}
+                                        className="h-3 w-3 rounded"
+                                      />
+                                    ))}
+                                    <button
+                                      onClick={() => updateModel(model.id, { customModelDataFlags: [...(model.customModelDataFlags || []), false] })}
+                                      className="text-[8px] bg-muted px-1 rounded hover:bg-muted-foreground/20 font-bold"
+                                    >
+                                      + Flag
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
+                                  <label className="block text-[10px] uppercase font-bold text-muted-foreground">Colors (1.21.2+)</label>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {(model.customModelDataColors || []).map((color, idx) => (
+                                      <div key={idx} className="flex items-center gap-1 bg-muted p-1 rounded">
+                                        <div
+                                          className="w-3 h-3 rounded-full border border-border"
+                                          style={{ backgroundColor: color }}
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const colors = [...(model.customModelDataColors || [])]
+                                            colors.splice(idx, 1)
+                                            updateModel(model.id, { customModelDataColors: colors })
+                                          }}
+                                          className="text-[8px] text-destructive px-0.5 hover:bg-destructive/10"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <input
+                                      type="color"
+                                      className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer"
+                                      onChange={(e) => {
+                                        updateModel(model.id, { customModelDataColors: [...(model.customModelDataColors || []), e.target.value] })
+                                      }}
+                                    />
+                                  </div>
+                                </div>
                               </div>
                               <div className="mt-2 space-y-2 pt-2 border-t border-border/30">
                                 <label className="block text-[10px] uppercase font-bold text-muted-foreground">{t.models.transparency}</label>
