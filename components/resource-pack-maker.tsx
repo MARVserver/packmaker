@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Sparkles, Film, Upload, Trash2, Plus, Settings2, Layout, Copy, Check, Terminal, Box } from "lucide-react"
+import { Sparkles, Film, Upload, Trash2, Plus, Settings2, Layout, Copy, Check, Terminal, Box, Shield } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { importBedrockPack, detectPackEdition } from "./resource-pack/bedrock-import"
 import {
@@ -1130,6 +1130,27 @@ export function ResourcePackMaker() {
           bedrockGeometry = convertToBedrock(parsedData, modelName)
         }
 
+        // Automatic armor detection
+        let isEquippable = false
+        let equippableSlot: "head" | "chest" | "legs" | "feet" | "body" | "any" = "head"
+
+        if (targetItem.endsWith("_helmet") || targetItem === "turtle_helmet") {
+          isEquippable = true
+          equippableSlot = "head"
+        } else if (targetItem.endsWith("_chestplate") || targetItem === "elytra") {
+          isEquippable = true
+          equippableSlot = "chest"
+        } else if (targetItem.endsWith("_leggings")) {
+          isEquippable = true
+          equippableSlot = "legs"
+        } else if (targetItem.endsWith("_boots")) {
+          isEquippable = true
+          equippableSlot = "feet"
+        }
+
+        // If it's an armor piece and no CMD was detected, assume it's a default override
+        const isDefaultOverride = isEquippable && !detectedCmd
+
         const newModel: ModelData = {
           id: `model_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           name: modelName,
@@ -1146,10 +1167,17 @@ export function ResourcePackMaker() {
           bedrockGeometry,
           renderType: "minecraft:item/generated",
           bedrockMaterial: "entity_alphatest",
-          isEquippable: false,
-          equippableSlot: "head",
-          isEquipmentModel: false,
-          equipmentLayers: {}
+          isEquippable,
+          equippableSlot,
+          isEquipmentModel: isEquippable, // Automatically register equipment model for armor
+          equipmentLayers: isEquippable ? {
+            humanoid: [
+              // For 3D meshes, we'll want to use 'model' property in export logic, 
+              // but for now we store the name to indicate it should point to itself.
+              modelName
+            ]
+          } : {},
+          isDefaultOverride
         }
 
         // Batch state update for performance and consistency
@@ -1801,12 +1829,33 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             zip.file(`assets/minecraft/items/${modelName}.json`, JSON.stringify(singleItemDef, null, 2))
           })
 
+          // Helper to create a model object with components if needed
+          const createModelEntry = (m: any) => {
+            const entry: any = {
+              type: "minecraft:model",
+              model: `minecraft:item/${m.name.toLowerCase().replace(/\s+/g, "_")}`
+            }
+            if (m.isEquippable) {
+              entry.components = {
+                "minecraft:equippable": {
+                  slot: m.equippableSlot || "head"
+                }
+              }
+              if (m.equippableModel) {
+                entry.components["minecraft:equippable"].model =
+                  m.equippableModel.includes(":") ? m.equippableModel : `minecraft:${m.equippableModel}`
+              }
+              if (m.equippableCameraOverlay) {
+                entry.components["minecraft:equippable"].camera_overlay =
+                  m.equippableCameraOverlay.includes(":") ? m.equippableCameraOverlay : `minecraft:${m.equippableCameraOverlay}`
+              }
+            }
+            return entry
+          }
+
           // If there's a default override, use it as the base, otherwise use vanilla
           const baseFallback = defaultOverride
-            ? {
-              type: "minecraft:model",
-              model: `minecraft:item/${defaultOverride.name.toLowerCase().replace(/\s+/g, "_")}`
-            }
+            ? createModelEntry(defaultOverride)
             : {
               type: "minecraft:model",
               model: `minecraft:item/${itemName}`
@@ -1820,10 +1869,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               fallback: baseFallback,
               entries: regularModels.map((model) => ({
                 threshold: model.customModelData,
-                model: {
-                  type: "minecraft:model",
-                  model: `minecraft:item/${model.name.toLowerCase().replace(/\s+/g, "_")}`
-                },
+                model: createModelEntry(model),
               })),
             } : baseFallback,
           }
@@ -1910,13 +1956,32 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       // Generate equipment models (1.21.2+)
       validModels.filter((m: any) => m.isEquipmentModel).forEach((model: any) => {
         const equipModelName = (model.equippableModel || model.name).toLowerCase().replace(/\s+/g, "_")
-        const equipModelJson: any = {
-          layers: model.equipmentLayers || {
-            humanoid: [
-              { texture: `minecraft:equipment/${equipModelName}` }
-            ]
-          }
+
+        const layers: any = {}
+        const sourceLayers = model.equipmentLayers || {
+          humanoid: [(model.equippableModel || model.name)]
         }
+
+        Object.entries(sourceLayers).forEach(([slot, layerRefs]: [string, any]) => {
+          if (!Array.isArray(layerRefs)) return
+
+          layers[slot] = layerRefs.map((ref: string) => {
+            // Check if this reference refers to a 3D model (mesh) or a texture
+            const isMesh = validModels.some(m =>
+              (m.name === ref || m.id === ref) && m.elements && m.elements.length > 0
+            ) || (ref === model.name && model.elements && model.elements.length > 0)
+
+            if (isMesh) {
+              const meshName = ref.toLowerCase().replace(/\s+/g, "_")
+              return { model: `minecraft:item/${meshName}` }
+            } else {
+              const texName = ref.toLowerCase().replace(/\s+/g, "_")
+              return { texture: `minecraft:equipment/${texName}` }
+            }
+          })
+        })
+
+        const equipModelJson: any = { layers }
         zip.file(`assets/minecraft/models/equipment/${equipModelName}.json`, JSON.stringify(equipModelJson, null, 2))
       })
 
@@ -3812,7 +3877,15 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                                   </div>
                                 )}
                                 {model.isDefaultOverride && (
-                                  <p className="text-xs text-muted-foreground whitespace-nowrap">Default Override</p>
+                                  <Badge variant="outline" className="h-4 px-1 text-[8px] bg-amber-500/10 text-amber-600 border-amber-500/20">
+                                    Override
+                                  </Badge>
+                                )}
+                                {model.isEquippable && (
+                                  <Badge variant="outline" className="h-4 px-1 text-[8px] bg-purple-500/10 text-purple-600 border-purple-500/20 flex items-center gap-0.5">
+                                    <Shield className="h-2 w-2" />
+                                    Armor ({model.equippableSlot})
+                                  </Badge>
                                 )}
                                 {model.bedrockGeometry && (
                                   <Badge variant="secondary" className="h-4 px-1 text-[8px] bg-cyan-100 text-cyan-700 hover:bg-cyan-100 border-cyan-200">
@@ -3966,12 +4039,16 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                               <div className="space-y-1">
                                 {(() => {
                                   const targetItem = model.targetItem.includes(":") ? model.targetItem : `minecraft:${model.targetItem}`
-                                  const cmdObj: any = { floats: [model.customModelData, ...(model.customModelDataFloats || [])] }
+                                  const cmdObj: any = { floats: [model.customModelData, ...(model.customModelDataFloats || [])].map(f => parseFloat(f.toString())) }
                                   if (model.customModelDataFlags?.length) cmdObj.flags = model.customModelDataFlags
                                   if (model.customModelDataStrings?.length) cmdObj.strings = model.customModelDataStrings
                                   if (model.customModelDataColors?.length) cmdObj.colors = model.customModelDataColors.map(c => c.replace("#", "0x"))
-                                  const componentsStr = JSON.stringify({ "minecraft:custom_model_data": cmdObj }).replace(/\"(floats|flags|strings|colors|minecraft:custom_model_data)\":/g, "$1:")
-                                  const modernSummon = `/summon item_display ~ ~ ~ {item:{id:"${targetItem}",count:1,components:${componentsStr}}}`
+
+                                  const componentsStr = model.isDefaultOverride
+                                    ? "{}"
+                                    : JSON.stringify({ "minecraft:custom_model_data": cmdObj }).replace(/\"(floats|flags|strings|colors|minecraft:custom_model_data)\":/g, "$1:")
+
+                                  const modernSummon = `/summon item_display ~ ~ ~ {item:{id:"${targetItem}",count:1${model.isDefaultOverride ? "" : `,components:${componentsStr}`}}}`
                                   const legacySummon = `/summon armor_stand ~ ~ ~ {ArmorItems:[{},{},{},{id:"${targetItem}",Count:1b,tag:{CustomModelData:${model.customModelData}}}]}`
 
                                   return [
