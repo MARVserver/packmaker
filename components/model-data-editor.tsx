@@ -24,6 +24,10 @@ interface ModelData {
   customModelDataFlags?: boolean[]
   customModelDataStrings?: string[]
   customModelDataColors?: string[] // RGB hex colors
+  isEquippable?: boolean
+  equippableSlot?: "head" | "chest" | "legs" | "feet" | "body" | "any"
+  equippableModel?: string
+  isEquipmentModel?: boolean
 }
 
 interface TextureData {
@@ -540,6 +544,7 @@ export function ModelDataEditor({ model, onUpdate, onRemove, availableTextures }
                   <p className="text-sm text-muted-foreground">No textures assigned. Add a texture key to get started.</p>
                 )}
               </div>
+            </div>
           </CardContent>
         </CollapsibleContent>
       </Collapsible>

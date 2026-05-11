@@ -74,7 +74,7 @@ export async function importBedrockPack(
     geyserMappings?: GeyserMapping
 ): Promise<ResourcePack> {
     const importedPack: ResourcePack = {
-        name: fileName.replace(".zip", ""),
+        name: fileName.replace(/\.(zip|mcpack)$/i, ""),
         description: "",
         version: "1.21.0",
         format: 63, // Default to latest Java format for compatibility
