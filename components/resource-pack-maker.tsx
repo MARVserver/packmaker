@@ -62,7 +62,6 @@ const validateResourcePack = (pack: ResourcePack): { isValid: boolean; errors: s
 
   if (!pack.name.trim()) errors.push("Pack name is required")
   if (!pack.description.trim()) errors.push("Pack description is required")
-  if (pack.models.length === 0) errors.push("At least one model is required")
 
   // Check for duplicate custom model data within same target item
   const targetItemGroups = pack.models.reduce(
@@ -450,6 +449,27 @@ const stringifyWithEscapes = (obj: any) => {
   }, 2).replace(/\\\\u/g, "\\u") // Fix double escape for unicode
 }
 
+const STORED_BINARY_OPTIONS = { compression: "STORE" as const }
+const ZIP_GENERATE_OPTIONS = {
+  type: "blob" as const,
+  streamFiles: true,
+  compression: "DEFLATE" as const,
+  compressionOptions: { level: 3 },
+}
+
+const addStoredFile = (zip: any, path: string, file: File) => {
+  zip.file(path, file, STORED_BINARY_OPTIONS)
+}
+
+const PACK_ARCHIVE_EXTENSIONS = [".zip", ".mcpack"] as const
+
+const isPackArchiveFile = (fileName: string) => {
+  const lowerName = fileName.toLowerCase()
+  return PACK_ARCHIVE_EXTENSIONS.some((extension) => lowerName.endsWith(extension))
+}
+
+const stripPackArchiveExtension = (fileName: string) => fileName.replace(/\.(zip|mcpack)$/i, "")
+
 export function ResourcePackMaker() {
   const { toast } = useToast()
   const [language, setLanguage] = useState<"ja" | "en">("en") // Default to English
@@ -567,6 +587,8 @@ export function ResourcePackMaker() {
   }, [resourcePack.models, resourcePack.textures, formatFileSize])
 
   const packStats = statistics
+  const modelReadiness =
+    packStats.totalModels === 0 ? 100 : Math.min(100, (packStats.validModels / packStats.totalModels) * 100)
 
   const updateProgress = useCallback((step: string, percent: number) => {
     setProcessingStep(step)
@@ -1506,7 +1528,7 @@ export function ResourcePackMaker() {
 
       // Add pack icon
       if (resourcePack.packIcon) {
-        zip.file("pack_icon.png", resourcePack.packIcon)
+        addStoredFile(zip, "pack_icon.png", resourcePack.packIcon)
       }
 
       updateProgress("Creating Bedrock models and attachables...", 40)
@@ -1600,7 +1622,7 @@ export function ResourcePackMaker() {
         const textureName = texture.name.replace(/\.[^/.]+$/, "").replace(/^.*[\\/]/, "")
         const texturePath = `textures/entity/${textureName}`
 
-        zip.file(`${texturePath}.png`, texture.file)
+        addStoredFile(zip, `${texturePath}.png`, texture.file)
 
         // Register in item_texture.json
         itemTextureData.texture_data[textureName] = {
@@ -1649,7 +1671,7 @@ ${new Date().toLocaleString()}
 
         for (const sound of resourcePack.sounds) {
           if (sound.file) {
-            zip.file(`sounds/${sound.name}.ogg`, sound.file)
+            addStoredFile(zip, `sounds/${sound.name}.ogg`, sound.file)
           }
         }
       }
@@ -1673,7 +1695,7 @@ ${new Date().toLocaleString()}
         }
         for (const p of resourcePack.particles) {
           if (p.file) {
-            zip.file(`textures/particle/${p.name}.png`, p.file)
+            addStoredFile(zip, `textures/particle/${p.name}.png`, p.file)
           }
         }
       }
@@ -1692,9 +1714,9 @@ ${new Date().toLocaleString()}
                 const filename = fileToSave.name.replace(/\.[^/.]+$/, "")
 
                 if (ext === "ttf" || ext === "otf") {
-                  zip.file(`font/${filename}.${ext}`, fileToSave)
+                  addStoredFile(zip, `font/${filename}.${ext}`, fileToSave)
                 } else if (ext === "png") {
-                  zip.file(`textures/font/${filename}.${ext}`, fileToSave)
+                  addStoredFile(zip, `textures/font/${filename}.${ext}`, fileToSave)
                 }
               }
             }
@@ -1715,7 +1737,7 @@ ${new Date().toLocaleString()}
 
       // Pack icon
       if (resourcePack.packIcon) {
-        zip.file("pack.png", resourcePack.packIcon)
+        addStoredFile(zip, "pack.png", resourcePack.packIcon)
       }
 
       // README
@@ -2026,7 +2048,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
         const fullPath = texture.path ? `${texture.path}.png` : `textures/item/${texture.name.replace(/\.[^/.]+$/, "").toLowerCase().replace(/\s+/g, "_")}.png`
 
         if (texture.file) {
-          zip.file(`assets/minecraft/${fullPath}`, texture.file)
+          addStoredFile(zip, `assets/minecraft/${fullPath}`, texture.file)
         }
 
         if (texture.animation?.enabled) {
@@ -2096,7 +2118,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
                 // Force create the texture at the location expected by the path
                 const savePath = `assets/minecraft/textures/font/${saveName}`
-                zip.file(savePath, fileToSave)
+                addStoredFile(zip, savePath, fileToSave)
 
                 // Ensure bitmapPath matches if it wasn't set or lacks namespace
                 if (!bitmapPath) {
@@ -2129,7 +2151,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                 }
 
                 const savePath = `assets/minecraft/font/${saveName}`
-                zip.file(savePath, fileToSave)
+                addStoredFile(zip, savePath, fileToSave)
 
                 if (!ttfPath) {
                   ttfPath = `minecraft:font/${saveName}`
@@ -2180,7 +2202,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           }
 
           if (sound.file) {
-            zip.file(`assets/minecraft/sounds/${sound.name}.ogg`, sound.file)
+            addStoredFile(zip, `assets/minecraft/sounds/${sound.name}.ogg`, sound.file)
           }
         }
 
@@ -2199,7 +2221,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           zip.file(`assets/minecraft/particles/${particle.name}.json`, JSON.stringify(particleJson, null, 2))
 
           if (particle.file) {
-            zip.file(`assets/minecraft/textures/particle/${particle.name}.png`, particle.file)
+            addStoredFile(zip, `assets/minecraft/textures/particle/${particle.name}.png`, particle.file)
           }
         }
       }
@@ -2213,7 +2235,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           const folder = shader.type === "program" ? "program" : "core"
 
           if (shader.file) {
-            zip.file(`assets/minecraft/shaders/${folder}/${shader.name}${extension}`, shader.file)
+            addStoredFile(zip, `assets/minecraft/shaders/${folder}/${shader.name}${extension}`, shader.file)
           }
         }
       }
@@ -2225,11 +2247,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
     updateProgress("Generating ZIP file...", 97)
 
-    const content = await zip.generateAsync({
-      type: "blob",
-      compression: "DEFLATE",
-      compressionOptions: { level: 9 },
-    })
+    const content = await zip.generateAsync(ZIP_GENERATE_OPTIONS)
 
     updateProgress("Complete!", 100)
 
@@ -2237,8 +2255,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
     const a = document.createElement("a")
     a.href = url
     const packName = resourcePack.name || "resource-pack"
-    const editionSuffix = packEdition === "bedrock" ? "-bedrock" : ""
-    a.download = `${packName}${editionSuffix}.zip`
+    a.download = packEdition === "bedrock" ? `${packName}.mcpack` : `${packName}.zip`
     a.click()
     URL.revokeObjectURL(url)
 
@@ -2263,8 +2280,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      if (file.name.endsWith(".zip")) {
-        newPacks.push({ name: file.name.replace(".zip", ""), file })
+      if (isPackArchiveFile(file.name)) {
+        newPacks.push({ name: stripPackArchiveExtension(file.name), file })
       }
     }
 
@@ -2699,8 +2716,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             setIsProcessing(false)
             setProgress(0)
           }
-        } else if (file.name.endsWith(".zip")) {
-          updateProgress("Loading ZIP file...", 20)
+        } else if (isPackArchiveFile(file.name)) {
+          updateProgress("Loading pack archive...", 20)
           const JSZip = (await import("jszip")).default
           const zip = await JSZip.loadAsync(file)
 
@@ -2740,7 +2757,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           console.log("=== ENTERING JAVA EDITION IMPORT PATH ===")
 
           const importedPack: ResourcePack = {
-            name: file.name.replace(".zip", ""),
+            name: stripPackArchiveExtension(file.name),
             description: "",
             version: "1.21.6",
             format: 63,
@@ -3103,7 +3120,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             )
           }, 500) // Short delay to allow state update
         } else {
-          alert("Unsupported file type. Please import a .zip or .json file.")
+          alert("Unsupported file type. Please import a .zip, .mcpack, or .json file.")
           setIsProcessing(false)
           setProgress(0)
         }
@@ -3385,7 +3402,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
       const files = Array.from(e.dataTransfer.files)
 
       for (const file of files) {
-        if (file.name.endsWith(".zip")) {
+        if (isPackArchiveFile(file.name)) {
           await importExistingPack(file)
           return // Stop after importing a pack
         } else if (file.name.endsWith(".bbmodel")) {
@@ -3488,7 +3505,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           <div className="bg-background p-8 rounded-xl shadow-xl border border-border text-center transform scale-110 transition-transform">
             <Upload className="w-16 h-16 mx-auto text-primary mb-4" />
             <p className="text-2xl font-bold text-primary">Drop files here</p>
-            <p className="text-muted-foreground mt-2">Support: .zip (Pack), .bbmodel (Model), .png (Texture), .json (Config/Mapping)</p>
+            <p className="text-muted-foreground mt-2">Support: .zip/.mcpack (Pack), .bbmodel (Model), .png (Texture), .json (Config/Mapping)</p>
           </div>
         </div>
       )}
@@ -3755,12 +3772,12 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                     <div className="mt-3">
                       <div className="flex justify-between text-[10px] mb-1">
                         <span>{t.dashboard.readiness}</span>
-                        <span>{Math.min(100, (packStats.validModels / (packStats.totalModels || 1)) * 100).toFixed(0)}%</span>
+                        <span>{modelReadiness.toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                         <div
                           className="h-full bg-primary transition-all duration-500"
-                          style={{ width: `${Math.min(100, (packStats.validModels / (packStats.totalModels || 1)) * 100)}%` }}
+                          style={{ width: `${modelReadiness}%` }}
                         />
                       </div>
                     </div>
@@ -4342,7 +4359,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                     </label>
                     <input
                       type="file"
-                      accept=".zip"
+                      accept=".zip,.mcpack"
                       multiple
                       onChange={(e) => e.target.files && handleMergePackUpload(e.target.files)}
                       className="w-full px-4 py-2 border-2 border-primary rounded-lg bg-background text-foreground"
@@ -4659,7 +4676,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             onClick={() => {
               const fileInput = document.createElement("input")
               fileInput.type = "file"
-              fileInput.accept = ".zip,.json"
+              fileInput.accept = ".zip,.mcpack,.json"
               fileInput.onchange = (e) => {
                 const file = (e.target as HTMLInputElement).files?.[0]
                 if (file) importExistingPack(file)
