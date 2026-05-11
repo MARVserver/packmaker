@@ -192,6 +192,35 @@ const UNICODE_RANGES = {
     supplementary_private: { start: 0xF0000, end: 0xFFFFD, name: "Supplementary Private Use Area-A" }
 }
 
+const normalizeHexInput = (value: string) => value.replace(/^U\+/i, "").replace(/^\\u\{?/i, "").replace(/\}$/g, "")
+
+const codePointToEscape = (codePoint: number) =>
+    codePoint <= 0xFFFF
+        ? `\\u${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
+        : `\\u{${codePoint.toString(16).toUpperCase()}}`
+
+const decodePreviewText = (text: string) =>
+    text
+        .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+
+const buildUnicodeGrid = (startHex: string, columns: number, rows: number) => {
+    const start = parseInt(normalizeHexInput(startHex), 16)
+    if (!Number.isFinite(start) || start < 0 || start > 0x10FFFF) return []
+
+    const safeColumns = Math.max(1, Math.floor(columns))
+    const safeRows = Math.max(1, Math.floor(rows))
+
+    return Array.from({ length: safeRows }, (_, row) =>
+        Array.from({ length: safeColumns }, (_, col) => String.fromCodePoint(start + row * safeColumns + col)).join("")
+    )
+}
+
+const getGridUsageText = (chars?: string[]) =>
+    (chars || [])
+        .map(row => Array.from(row).map(char => codePointToEscape(char.codePointAt(0) || 0)).join(""))
+        .join("")
+
 function FontPreview({ providers, text }: { providers: FontProvider[], text: string }) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -208,9 +237,7 @@ function FontPreview({ providers, text }: { providers: FontProvider[], text: str
         const centerY = canvas.height / 2
 
         // Parse unicode escape sequences in the text
-        const processedText = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
-            String.fromCodePoint(parseInt(hex, 16))
-        )
+        const processedText = decodePreviewText(text)
 
         for (const char of processedText) {
             let handled = false
@@ -228,15 +255,16 @@ function FontPreview({ providers, text }: { providers: FontProvider[], text: str
             // 2. Check Bitmap Providers
             for (const provider of providers) {
                 if (provider.type === "bitmap" && provider.fileHandle && provider.chars) {
-                    const rowIndex = provider.chars.findIndex(row => row.includes(char))
+                    const rowIndex = provider.chars.findIndex(row => Array.from(row).includes(char))
                     if (rowIndex !== -1) {
-                        const colIndex = provider.chars[rowIndex].indexOf(char)
+                        const rowChars = Array.from(provider.chars[rowIndex])
+                        const colIndex = rowChars.indexOf(char)
                         const height = provider.height || 8
                         const ascent = provider.ascent || 8
 
                         const img = new Image()
                         img.onload = () => {
-                            const charWidth = img.width / provider.chars![rowIndex].length
+                            const charWidth = img.width / rowChars.length
                             const charHeight = img.height / provider.chars!.length
 
                             ctx.drawImage(
@@ -288,16 +316,18 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
     const [showUnicodeHelper, setShowUnicodeHelper] = useState(false)
     const [unicodeStart, setUnicodeStart] = useState("E000")
     const [autoAssignUnicode, setAutoAssignUnicode] = useState(true)
+    const [gridSettings, setGridSettings] = useState<Record<string, { start: string; columns: number; rows: number }>>({})
 
     const findNextAvailableUnicode = (startHex: string) => {
-        let current = parseInt(startHex, 16)
+        let current = parseInt(normalizeHexInput(startHex), 16)
         const usedCodes = new Set<number>()
 
         fonts.forEach(f => {
             f.providers.forEach(p => {
                 p.chars?.forEach(row => {
                     for (const char of row) {
-                        usedCodes.add(char.charCodeAt(0))
+                        const codePoint = char.codePointAt(0)
+                        if (codePoint !== undefined) usedCodes.add(codePoint)
                     }
                 })
             })
@@ -307,6 +337,30 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
             current++
         }
         return current.toString(16).toUpperCase()
+    }
+
+    const getGridSetting = (provider: FontProvider) => {
+        const firstChar = provider.chars?.[0] ? Array.from(provider.chars[0])[0] : undefined
+        const firstCodePoint = firstChar?.codePointAt(0)
+        const existingRows = provider.chars?.length || 1
+        const existingColumns = provider.chars?.[0] ? Array.from(provider.chars[0]).length : 1
+
+        return gridSettings[provider.id] || {
+            start: firstCodePoint?.toString(16).toUpperCase() || findNextAvailableUnicode(unicodeStart),
+            columns: Math.max(1, existingColumns),
+            rows: Math.max(1, existingRows),
+        }
+    }
+
+    const updateGridSetting = (providerId: string, data: Partial<{ start: string; columns: number; rows: number }>) => {
+        setGridSettings(prev => ({
+            ...prev,
+            [providerId]: {
+                start: data.start ?? prev[providerId]?.start ?? findNextAvailableUnicode(unicodeStart),
+                columns: data.columns ?? prev[providerId]?.columns ?? 1,
+                rows: data.rows ?? prev[providerId]?.rows ?? 1,
+            }
+        }))
     }
 
     const handleImportConfig = () => {
@@ -694,7 +748,11 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
                                 </div>
                             </div>
 
-                            {font.providers.map((provider, index) => (
+                            {font.providers.map((provider, index) => {
+                                const gridSetting = getGridSetting(provider)
+                                const gridUsageText = getGridUsageText(provider.chars)
+
+                                return (
                                 <div key={index} className="rounded-lg border bg-card p-4 shadow-sm relative group">
                                     <div className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Button
@@ -794,6 +852,79 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
                                                 <p className="text-xs text-muted-foreground">Each line represents a row in the texture. Use Unicode characters like \uE000, \uE001, etc.</p>
                                             </div>
 
+                                            <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div>
+                                                        <Label className="text-sm font-semibold">Multi-character Image Grid</Label>
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            Split one bitmap into columns and rows, then assign one Unicode per cell.
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="secondary"
+                                                        className="h-8 whitespace-nowrap"
+                                                        onClick={() => {
+                                                            const chars = buildUnicodeGrid(gridSetting.start, gridSetting.columns, gridSetting.rows)
+                                                            updateProvider(font.id, index, { chars })
+                                                            setPreviewText(getGridUsageText(chars))
+                                                        }}
+                                                    >
+                                                        <Layers className="mr-1 h-3 w-3" />
+                                                        Generate Grid
+                                                    </Button>
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                    <div className="space-y-1">
+                                                        <Label className="text-xs">Start Unicode</Label>
+                                                        <Input
+                                                            value={gridSetting.start}
+                                                            onChange={(e) => updateGridSetting(provider.id, { start: e.target.value.toUpperCase() })}
+                                                            placeholder="E000"
+                                                            className="h-8 font-mono text-xs"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <Label className="text-xs">Columns</Label>
+                                                        <Input
+                                                            type="number"
+                                                            min={1}
+                                                            value={gridSetting.columns}
+                                                            onChange={(e) => updateGridSetting(provider.id, { columns: parseInt(e.target.value) || 1 })}
+                                                            className="h-8"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <Label className="text-xs">Rows</Label>
+                                                        <Input
+                                                            type="number"
+                                                            min={1}
+                                                            value={gridSetting.rows}
+                                                            onChange={(e) => updateGridSetting(provider.id, { rows: parseInt(e.target.value) || 1 })}
+                                                            className="h-8"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
+                                                    <code className="rounded bg-background px-2 py-1 font-mono text-[10px] break-all">
+                                                        {gridUsageText || "Generate a grid to create the usage string."}
+                                                    </code>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-8"
+                                                        disabled={!gridUsageText}
+                                                        onClick={() => {
+                                                            setPreviewText(gridUsageText)
+                                                            copyToClipboard(gridUsageText)
+                                                        }}
+                                                    >
+                                                        <Copy className="mr-1 h-3 w-3" />
+                                                        Use & Copy
+                                                    </Button>
+                                                </div>
+                                            </div>
+
                                             {provider.fileHandle && (
                                                 <div className="space-y-2 pt-4 border-t">
                                                     <Label className="text-sm font-semibold flex items-center gap-2">
@@ -809,7 +940,8 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
                                                         />
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                                                        <div><strong>Assigned Unicode:</strong> {provider.chars?.[0] ? `\\u${provider.chars[0].charCodeAt(0).toString(16).toUpperCase()}` : 'None'}</div>
+                                                        <div><strong>Assigned Unicode:</strong> {provider.chars?.[0] ? codePointToEscape(Array.from(provider.chars[0])[0]?.codePointAt(0) || 0) : 'None'}</div>
+                                                        <div><strong>Grid:</strong> {provider.chars?.[0] ? `${Array.from(provider.chars[0]).length} x ${provider.chars.length}` : 'None'}</div>
                                                         <div><strong>Height:</strong> {provider.height}px</div>
                                                         <div><strong>Ascent:</strong> {provider.ascent}px</div>
                                                         <div><strong>File:</strong> {provider.fileHandle.name}</div>
@@ -963,7 +1095,8 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
                                         </div>
                                     )}
                                 </div>
-                            ))}
+                                )
+                            })}
 
                             <div className="flex gap-2 pt-4 border-t">
                                 <Button variant="outline" onClick={() => addProvider(font.id, "space")}>
