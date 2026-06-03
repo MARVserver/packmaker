@@ -114,7 +114,7 @@ export async function importBedrockPack(
 
     // Read textures from textures/ folder (parallel processing)
     const textureFiles = Object.keys(zip.files).filter(
-        (path) => path.startsWith("textures/") && (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+        (path) => path.startsWith("textures/") && (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".gif"))
     )
 
     const texturePromises = textureFiles.map(async (texturePath) => {
@@ -127,11 +127,11 @@ export async function importBedrockPack(
 
         const dimensions = await getImageDimensions(textureFileObj)
 
-        const relativePath = texturePath.replace(/\.(png|jpg|jpeg)$/, "")
+        const relativePath = texturePath.replace(/\.(png|jpg|jpeg|gif)$/, "")
 
         return {
             id: `texture_${uuidv4()}_${uuidv4()}`,
-            name: textureName.replace(/\.(png|jpg|jpeg)$/, ""),
+            name: textureName.replace(/\.(png|jpg|jpeg|gif)$/, ""),
             file: textureFileObj,
             path: relativePath,
             size: textureFileObj.size,

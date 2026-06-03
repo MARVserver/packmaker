@@ -85,7 +85,7 @@ export function TextureManager({
                     <div className="relative">
                         <input
                             type="file"
-                            accept="image/png"
+                            accept="image/png,image/gif"
                             multiple
                             className="absolute inset-0 opacity-0 cursor-pointer"
                             onChange={handleFileUpload}

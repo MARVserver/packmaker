@@ -779,7 +779,7 @@ export function FontManager({ fonts, onAdd, onImport, onUpdate, onDelete, t }: F
                                                     <Label>Texture File {provider.fileHandle && <span className="text-xs text-muted-foreground font-normal">({provider.fileHandle.name})</span>}</Label>
                                                     <Input
                                                         type="file"
-                                                        accept="image/png"
+                                                        accept="image/png,image/gif"
                                                         onChange={(e) => {
                                                             const file = e.target.files?.[0]
                                                             if (file) {

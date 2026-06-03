@@ -296,7 +296,7 @@ export function ParticleManager({ particles, textures, onAdd, onUpdate, onDelete
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="image/png"
+                accept="image/png,image/gif"
                 multiple
                 onChange={(e) => {
                     if (uploadingTo) {

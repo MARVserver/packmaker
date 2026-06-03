@@ -1621,8 +1621,9 @@ export function ResourcePackMaker() {
         // Ensure texture name is clean
         const textureName = texture.name.replace(/\.[^/.]+$/, "").replace(/^.*[\\/]/, "")
         const texturePath = `textures/entity/${textureName}`
+        const textureExt = texture.file.name.split('.').pop() || 'png'
 
-        addStoredFile(zip, `${texturePath}.png`, texture.file)
+        addStoredFile(zip, `${texturePath}.${textureExt}`, texture.file)
 
         // Register in item_texture.json
         itemTextureData.texture_data[textureName] = {
@@ -1695,7 +1696,8 @@ ${new Date().toLocaleString()}
         }
         for (const p of resourcePack.particles) {
           if (p.file) {
-            addStoredFile(zip, `textures/particle/${p.name}.png`, p.file)
+            const pExt = p.file.name.split('.').pop() || 'png'
+            addStoredFile(zip, `textures/particle/${p.name}.${pExt}`, p.file)
           }
         }
       }
@@ -2045,7 +2047,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
 
       for (const texture of resourcePack.textures) {
         // Use path property if available, fallback to textures/item/name
-        const fullPath = texture.path ? `${texture.path}.png` : `textures/item/${texture.name.replace(/\.[^/.]+$/, "").toLowerCase().replace(/\s+/g, "_")}.png`
+        const textureExt = texture.file.name.split('.').pop() || 'png'
+        const fullPath = texture.path ? `${texture.path}.${textureExt}` : `textures/item/${texture.name.replace(/\.[^/.]+$/, "").toLowerCase().replace(/\s+/g, "_")}.${textureExt}`
 
         if (texture.file) {
           addStoredFile(zip, `assets/minecraft/${fullPath}`, texture.file)
@@ -2086,7 +2089,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
             if (provider.fileHandle) {
               fileToSave = provider.fileHandle
             } else if (font.file && (
-              (provider.type === "bitmap" && font.file.name.endsWith(".png")) ||
+              (provider.type === "bitmap" && (font.file.name.endsWith(".png") || font.file.name.endsWith(".gif"))) ||
               (provider.type === "ttf" && (font.file.name.endsWith(".ttf") || font.file.name.endsWith(".otf")))
             )) {
               fileToSave = font.file
@@ -2107,7 +2110,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               // Determine bitmap path based on user input or file
               let bitmapPath = provider.file
 
-              if (fileToSave && extension === "png") {
+              if (fileToSave && (extension === "png" || extension === "gif")) {
                 let saveName = `${filename}.${extension}`
 
                 // If user specified a custom path 'minecraft:font/my.png', use 'my.png' as save name
@@ -2221,7 +2224,8 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           zip.file(`assets/minecraft/particles/${particle.name}.json`, JSON.stringify(particleJson, null, 2))
 
           if (particle.file) {
-            addStoredFile(zip, `assets/minecraft/textures/particle/${particle.name}.png`, particle.file)
+            const particleExt = particle.file.name.split('.').pop() || 'png'
+            addStoredFile(zip, `assets/minecraft/textures/particle/${particle.name}.${particleExt}`, particle.file)
           }
         }
       }
@@ -2309,7 +2313,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           // Check for textures in common locations (Java and Bedrock):
           // assets/minecraft/textures/..., textures/item/..., textures/blocks/..., etc.
           const isTexture = path.includes("textures/") &&
-            (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
+            (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".gif"))
 
           const isBedrockModel = path.startsWith("models/entity/") && path.endsWith(".json")
           const isAttachable = path.startsWith("attachables/") && path.endsWith(".json")
@@ -2799,7 +2803,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           const textureFiles = Object.keys(zip.files).filter(
             (path) =>
               path.startsWith("assets/minecraft/textures/") &&
-              (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg")),
+              (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".gif")),
           )
 
           // </CHANGE> Fixed texture import to include size and dimensions
@@ -2817,7 +2821,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
               // Preserve the path structure: e.g., 'textures/block/my_block'
               const relativePath = texturePath
                 .replace("assets/minecraft/", "")
-                .replace(/\.(png|jpg|jpeg)$/, "")
+                .replace(/\.(png|jpg|jpeg|gif)$/, "")
               textureMap[relativePath] = textureFileObj
 
               // Add to textures array with all required properties
@@ -3410,7 +3414,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           const data = JSON.parse(text)
           await handleBbmodelUpload(file, data)
           setActiveTab("models")
-        } else if (file.name.endsWith(".png")) {
+        } else if (file.name.endsWith(".png") || file.name.endsWith(".gif")) {
           await addTexture(file, "item")
 
           // Smart Model Creation
@@ -3505,7 +3509,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
           <div className="bg-background p-8 rounded-xl shadow-xl border border-border text-center transform scale-110 transition-transform">
             <Upload className="w-16 h-16 mx-auto text-primary mb-4" />
             <p className="text-2xl font-bold text-primary">Drop files here</p>
-            <p className="text-muted-foreground mt-2">Support: .zip/.mcpack (Pack), .bbmodel (Model), .png (Texture), .json (Config/Mapping)</p>
+            <p className="text-muted-foreground mt-2">Support: .zip/.mcpack (Pack), .bbmodel (Model), .png/.gif (Texture), .json (Config/Mapping)</p>
           </div>
         </div>
       )}
@@ -3727,7 +3731,7 @@ Format: ${resourcePack.format >= 48 ? "1.21.4+ (item_model with range_dispatch)"
                         {t.general.uploadIcon}
                         <input
                           type="file"
-                          accept="image/png"
+                          accept="image/png,image/gif"
                           className="hidden"
                           onChange={(e) => {
                             const file = e.target.files?.[0]

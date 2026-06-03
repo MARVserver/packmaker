@@ -153,11 +153,14 @@ export function ResourcePackPreview({ resourcePack, language }: ResourcePackPrev
                 ))}
                 <div className="ml-12">📁 textures/</div>
                 <div className="ml-16">📁 item/</div>
-                {resourcePack.textures.map((texture, index) => (
-                  <div key={index} className="ml-20 text-accent">
-                    🖼️ {texture.name}.png
-                  </div>
-                ))}
+                {resourcePack.textures.map((texture, index) => {
+                  const previewExt = texture.file.name.split('.').pop() || 'png'
+                  return (
+                    <div key={index} className="ml-20 text-accent">
+                      🖼️ {texture.name}.{previewExt}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>

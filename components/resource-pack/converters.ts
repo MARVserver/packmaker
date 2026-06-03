@@ -185,9 +185,12 @@ export function convertFontsToBedrock(fonts: CustomFont[]): any {
             }
 
             if (provider.type === "bitmap") {
+                const bitmapExt = provider.fileHandle
+                    ? (provider.fileHandle.name.split('.').pop() || 'png')
+                    : 'png'
                 providers.push({
                     type: "bitmap",
-                    file: `textures/font/${filename}.png`,
+                    file: `textures/font/${filename}.${bitmapExt}`,
                     height: provider.height || 8,
                     ascent: provider.ascent || 8,
                     chars: provider.chars || []
